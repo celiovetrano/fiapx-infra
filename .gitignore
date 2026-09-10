@@ -1,0 +1,7 @@
+.idea/
+__MACOSX/
+.DS_Store
+uploads/
+outputs/
+temp/
+*.zip
