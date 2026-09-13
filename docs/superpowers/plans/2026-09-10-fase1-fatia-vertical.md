@@ -7288,7 +7288,9 @@ CREATE INDEX idx_notifications_video ON notifications (video_id);
 ```bash
 #!/bin/bash
 set -e
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
+# --dbname é obrigatório: sem ele o psql tenta um banco com o nome do usuário
+# ("fiapx"), que não existe, e o container sai com código 2.
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     CREATE DATABASE auth_db;
     CREATE DATABASE video_db;
     CREATE DATABASE notification_db;
@@ -7369,10 +7371,12 @@ services:
     volumes:
       - ./localstack/init:/etc/localstack/init/ready.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "awslocal sqs list-queues && awslocal s3 ls"]
+      # Saudável só depois que o script de init terminou: antes disso o listener do
+      # worker poderia criar a fila sem DLQ e o create-queue do script falharia.
+      test: ["CMD-SHELL", "curl -fs http://localhost:4566/_localstack/init/ready | grep -Eq '\"completed\": ?true'"]
       interval: 5s
       timeout: 5s
-      retries: 20
+      retries: 30
 
   auth-service:
     build:

@@ -1,0 +1,94 @@
+name: fiapx
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fiapx
+      POSTGRES_PASSWORD: fiapx
+      POSTGRES_DB: postgres
+    ports: ["5432:5432"]
+    volumes:
+      - ./sql/init:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fiapx"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  localstack:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: s3,sqs,sns
+      DEBUG: 0
+    ports: ["4566:4566"]
+    volumes:
+      - ./localstack/init:/etc/localstack/init/ready.d:ro
+    healthcheck:
+      # Saudável só depois que o script de init terminou: antes disso o listener do
+      # worker poderia criar a fila sem DLQ e o create-queue do script falharia.
+      test: ["CMD-SHELL", "curl -fs http://localhost:4566/_localstack/init/ready | grep -Eq '\"completed\": ?true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  auth-service:
+    build:
+      context: ./services/fiapx-auth-service
+    image: fiapx/auth-service:local
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/auth_db
+      DB_USER: fiapx
+      DB_PASSWORD: fiapx
+    ports: ["8081:8081"]
+
+  video-api:
+    build:
+      context: ./services
+      dockerfile: fiapx-video-api/Dockerfile
+    image: fiapx/video-api:local
+    depends_on:
+      postgres: { condition: service_healthy }
+      localstack: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/video_db
+      DB_USER: fiapx
+      DB_PASSWORD: fiapx
+      JWKS_URI: http://auth-service:8081/.well-known/jwks.json
+      AWS_ENDPOINT: http://localstack:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      S3_BUCKET: fiapx-videos
+      S3_PUBLIC_ENDPOINT: http://localhost:4566   # host da URL assinada, alcançável pelo navegador
+      S3_PATH_STYLE: "true"
+      SQS_PROCESSING_QUEUE: video-processing-queue
+      SQS_STATUS_QUEUE: video-status-queue
+    ports: ["8082:8082"]
+
+  processing-worker:
+    build:
+      context: ./services
+      dockerfile: fiapx-processing-worker/Dockerfile
+    image: fiapx/processing-worker:local
+    depends_on:
+      localstack: { condition: service_healthy }
+    environment:
+      AWS_ENDPOINT: http://localstack:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      S3_BUCKET: fiapx-videos
+      S3_PATH_STYLE: "true"
+      SQS_PROCESSING_QUEUE: video-processing-queue
+      SNS_EVENTS_TOPIC: video-events
+      WORK_DIR: /tmp/fiapx
+    deploy:
+      replicas: 2
+
+volumes:
+  pgdata:

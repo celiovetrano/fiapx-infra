@@ -1,0 +1,7 @@
+# Scripts executados dentro de containers Linux (Postgres, LocalStack): com CRLF
+# o bash falha com "\r: command not found".
+*.sh      text eol=lf
+mvnw      text eol=lf
+*.cmd     text eol=crlf
+*.jar     binary
+*.mp4     binary
