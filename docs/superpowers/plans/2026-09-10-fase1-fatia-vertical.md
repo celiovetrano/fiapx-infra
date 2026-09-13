@@ -6,7 +6,7 @@
 
 **Architecture:** Três serviços Spring Boot em Clean Architecture (`auth-service`, `video-api`, `processing-worker`) mais uma biblioteca de contratos. O `video-api` recebe o upload, grava no S3, persiste `PENDING` e publica na fila SQS respondendo `202 Accepted`; o worker consome a fila, executa ffmpeg, compacta e publica o resultado no SNS; o `video-api` consome o evento de resultado e atualiza o status. Nenhum serviço chama outro por HTTP no caminho de processamento.
 
-**Tech Stack:** Java 21 · Spring Boot 3.3.5 · Gradle (Groovy DSL) · Spring Cloud AWS 3.2.1 (SQS/SNS/S3) · PostgreSQL 16 + Flyway · Spring Security OAuth2 Resource Server + Nimbus JOSE · JUnit 5 + AssertJ + Mockito · Testcontainers 1.20.3 (PostgreSQL + LocalStack) · JaCoCo 0.8.12 · Docker Compose.
+**Tech Stack:** Java 21 · Spring Boot 3.3.5 · Maven 3.9 (wrapper `mvnw`) · Spring Cloud AWS 3.2.1 (SQS/SNS/S3) · PostgreSQL 16 + Flyway · Spring Security OAuth2 Resource Server + Nimbus JOSE · JUnit 5 + AssertJ + Mockito · Testcontainers 1.20.3 (PostgreSQL + LocalStack) · JaCoCo 0.8.12 · Docker Compose.
 
 **Spec:** `docs/superpowers/specs/2026-09-10-fiapx-microservices-design.md`
 
@@ -14,7 +14,8 @@
 
 Estas regras valem para **todas** as tarefas deste plano.
 
-- **Java 21** (toolchain declarada em todo `build.gradle`), **Spring Boot 3.3.5**, **Gradle Groovy DSL**.
+- **Java 21** (`<java.version>21</java.version>` nos serviços; `maven.compiler.release` nos projetos sem o parent do Spring Boot), **Spring Boot 3.3.5** (`spring-boot-starter-parent`), **Maven 3.9** via wrapper (`./mvnw` no Git Bash, `mvnw.cmd` no PowerShell).
+- Testes `*IT` rodam no **Surefire** junto com os unitários (não no Failsafe): `./mvnw test` executa a suíte inteira, `./mvnw test -Dtest=NomeDoTeste` roda um teste específico e `./mvnw verify` acrescenta a verificação de cobertura do JaCoCo.
 - Raiz de pacote: `br.com.fiapx.<serviço>` — `contracts`, `auth`, `video`, `worker`.
 - **Clean Architecture obrigatória** em cada serviço: `domain` (sem nenhum import de Spring, JPA, AWS ou Jackson) ← `application` (use cases e ports) ← `infrastructure` (adapters). Dependências apontam apenas para dentro.
 - **Cobertura JaCoCo mínima de 80% de linha** sobre `..domain..` e `..application..`; o build falha abaixo disso. `..infrastructure.config..` e DTOs ficam excluídos da contagem.
@@ -42,7 +43,7 @@ projeto-fiapx/                      ← repo fiapx-infra
 ├── sql/schema.sql                  ← entregável "script de criação do banco"
 ├── localstack/init/01-resources.sh
 ├── docker-compose.yml
-├── e2e/                            ← projeto Gradle com os testes de ponta a ponta
+├── e2e/                            ← projeto Maven com os testes de ponta a ponta
 └── services/                       ← IGNORADO pelo git do fiapx-infra
     ├── fiapx-contracts/
     ├── fiapx-auth-service/
@@ -122,10 +123,9 @@ __MACOSX/
 /services/*
 !/services/.gitkeep
 
-# Gradle / Java
-.gradle/
-build/
-!gradle/wrapper/gradle-wrapper.jar
+# Maven / Java
+target/
+!.mvn/wrapper/maven-wrapper.jar
 
 # Terraform (fase 2)
 .terraform/
@@ -187,11 +187,11 @@ a estrutura de services/ para os repositorios de microsservico."
 
 ## Task 2: Biblioteca `fiapx-contracts`
 
-Contratos de evento compartilhados. Publicada no `mavenLocal()` nesta fase; o GitHub Packages entra na fase 2.
+Contratos de evento compartilhados. Instalada no repositório Maven local (`./mvnw install`, em `~/.m2`) nesta fase; o GitHub Packages entra na fase 2.
 
 **Files:**
-- Create: `services/fiapx-contracts/build.gradle`
-- Create: `services/fiapx-contracts/settings.gradle`
+- Create: `services/fiapx-contracts/pom.xml`
+- Create: `services/fiapx-contracts/{mvnw,mvnw.cmd,.mvn/}` (Maven wrapper, copiado depois para os demais repositórios)
 - Create: `services/fiapx-contracts/src/main/java/br/com/fiapx/contracts/EventType.java`
 - Create: `services/fiapx-contracts/src/main/java/br/com/fiapx/contracts/ErrorCode.java`
 - Create: `services/fiapx-contracts/src/main/java/br/com/fiapx/contracts/EventEnvelope.java`
@@ -214,59 +214,118 @@ Contratos de evento compartilhados. Publicada no `mavenLocal()` nesta fase; o Gi
   - `VideoFailedPayload(UUID videoId, UUID userId, String userEmail, ErrorCode errorCode, String errorMessage, int attempt)`
   - `ErrorCode` com `INVALID_FORMAT`, `FFMPEG_FAILURE`, `NO_FRAMES_EXTRACTED`, `STORAGE_FAILURE`, `TIMEOUT`, `UNKNOWN`
 
-- [ ] **Step 1: Criar o repositório e o Gradle wrapper**
+- [ ] **Step 1: Criar o repositório e o Maven wrapper**
 
 ```bash
 cd services && mkdir -p fiapx-contracts && cd fiapx-contracts
 git init
-gradle wrapper --gradle-version 8.10 || echo "use o wrapper de outro projeto se o Gradle nao estiver instalado"
+# Sem Maven instalado: use o binario em cache ~/.m2/wrapper/dists/apache-maven-3.9.12/*/bin/mvn
+mvn -N wrapper:wrapper -Dmaven=3.9.12
 ```
 
-- [ ] **Step 2: Escrever `settings.gradle` e `build.gradle`**
+- [ ] **Step 2: Escrever o `pom.xml`**
 
-`settings.gradle`:
-```groovy
-rootProject.name = 'fiapx-contracts'
-```
+Biblioteca pura, sem o parent do Spring Boot: os serviços trazem o Jackson gerenciado
+pelo Boot, e a versão declarada aqui é compatível com a do Boot 3.3.5.
 
-`build.gradle`:
-```groovy
-plugins {
-    id 'java-library'
-    id 'maven-publish'
-    id 'jacoco'
-}
+`pom.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
 
-group = 'br.com.fiapx'
-version = '1.0.0'
+    <groupId>br.com.fiapx</groupId>
+    <artifactId>fiapx-contracts</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
 
-java {
-    toolchain { languageVersion = JavaLanguageVersion.of(21) }
-    withSourcesJar()
-}
+    <properties>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <jackson.version>2.17.2</jackson.version>
+    </properties>
 
-repositories { mavenCentral() }
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
+                <version>5.10.3</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
-dependencies {
-    api 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
-    api 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.17.2'
+    <dependencies>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
 
-    testImplementation platform('org.junit:junit-bom:5.10.3')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
-    testImplementation 'org.assertj:assertj-core:3.26.3'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-}
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>3.26.3</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
-test {
-    useJUnitPlatform()
-    finalizedBy jacocoTestReport
-}
-
-publishing {
-    publications {
-        maven(MavenPublication) { from components.java }
-    }
-}
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals><goal>jar-no-fork</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
 ```
 
 - [ ] **Step 3: Escrever o teste que falha**
@@ -346,7 +405,7 @@ class EventEnvelopeTest {
 
 - [ ] **Step 4: Rodar o teste e confirmar que falha**
 
-Run: `./gradlew test`
+Run: `./mvnw test`
 Expected: FAIL na compilação — `EventEnvelope`, `EventType`, `ContractsJson` e os payloads não existem.
 
 - [ ] **Step 5: Implementar `EventType` e `ErrorCode`**
@@ -534,12 +593,12 @@ public final class ContractsJson {
 
 - [ ] **Step 7: Rodar os testes e confirmar que passam**
 
-Run: `./gradlew test`
+Run: `./mvnw test`
 Expected: PASS — 4 testes verdes.
 
 - [ ] **Step 8: Publicar no repositório Maven local**
 
-Run: `./gradlew publishToMavenLocal`
+Run: `./mvnw install`
 Expected: `br/com/fiapx/fiapx-contracts/1.0.0/fiapx-contracts-1.0.0.jar` em `~/.m2/repository`.
 
 - [ ] **Step 9: Commit**
@@ -555,12 +614,12 @@ aditivas sem quebrar consumidores."
 
 ---
 
-## Task 3: `auth-service` — esqueleto Gradle e domínio de usuário
+## Task 3: `auth-service` — esqueleto Maven e domínio de usuário
 
 Domínio puro: sem Spring, sem JPA. É aqui que a regra de senha e de e-mail vive.
 
 **Files:**
-- Create: `services/fiapx-auth-service/{settings.gradle,build.gradle}`
+- Create: `services/fiapx-auth-service/pom.xml`
 - Create: `src/main/java/br/com/fiapx/auth/AuthServiceApplication.java`
 - Create: `src/main/java/br/com/fiapx/auth/domain/{Email,RawPassword,User}.java`
 - Create: `src/main/java/br/com/fiapx/auth/domain/exception/{DomainException,InvalidEmailException,WeakPasswordException,EmailAlreadyRegisteredException,InvalidCredentialsException}.java`
@@ -575,67 +634,165 @@ Domínio puro: sem Spring, sem JPA. É aqui que a regra de senha e de e-mail viv
   - `User.rehydrate(UUID id, Email, String passwordHash, String fullName, boolean enabled, Instant createdAt)` → `User`
   - Acessores de `User`: `id()`, `email()`, `passwordHash()`, `fullName()`, `enabled()`, `createdAt()`
 
-- [ ] **Step 1: Criar o repositório e o `build.gradle`**
+- [ ] **Step 1: Criar o repositório, o Maven wrapper e o `pom.xml`**
 
 ```bash
 cd services && mkdir -p fiapx-auth-service && cd fiapx-auth-service && git init
-gradle wrapper --gradle-version 8.10
+cp -r ../fiapx-contracts/mvnw ../fiapx-contracts/mvnw.cmd ../fiapx-contracts/.mvn .
 ```
 
-`settings.gradle`:
-```groovy
-rootProject.name = 'fiapx-auth-service'
-```
+`pom.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
 
-`build.gradle`:
-```groovy
-plugins {
-    id 'java'
-    id 'jacoco'
-    id 'org.springframework.boot' version '3.3.5'
-    id 'io.spring.dependency-management' version '1.1.6'
-}
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
 
-group = 'br.com.fiapx'
-version = '1.0.0'
-java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+    <groupId>br.com.fiapx</groupId>
+    <artifactId>fiapx-auth-service</artifactId>
+    <version>1.0.0</version>
 
-repositories { mavenCentral(); mavenLocal() }
+    <properties>
+        <java.version>21</java.version>
+        <testcontainers.version>1.20.3</testcontainers.version>
+    </properties>
 
-dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter-web'
-    implementation 'org.springframework.boot:spring-boot-starter-validation'
-    implementation 'org.springframework.boot:spring-boot-starter-security'
-    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.springframework.boot:spring-boot-starter-actuator'
-    implementation 'org.springframework.security:spring-security-oauth2-jose'
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
-    implementation 'org.flywaydb:flyway-core'
-    implementation 'org.flywaydb:flyway-database-postgresql'
-    runtimeOnly 'org.postgresql:postgresql'
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-jose</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.6.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'org.springframework.security:spring-security-test'
-    testImplementation platform('org.testcontainers:testcontainers-bom:1.20.3')
-    testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation 'org.testcontainers:postgresql'
-    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
-}
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
-test {
-    useJUnitPlatform()
-    finalizedBy jacocoTestCoverageVerification
-}
-
-jacocoTestCoverageVerification {
-    violationRules {
-        rule {
-            element = 'PACKAGE'
-            includes = ['br.com.fiapx.auth.domain*', 'br.com.fiapx.auth.application*']
-            limit { counter = 'LINE'; minimum = 0.80 }
-        }
-    }
-}
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*IT.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>PACKAGE</element>
+                                    <includes>
+                                        <include>br.com.fiapx.auth.domain*</include>
+                                        <include>br.com.fiapx.auth.application*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
 ```
 
 - [ ] **Step 2: Escrever os testes de domínio (falham)**
@@ -750,7 +907,7 @@ class UserTest {
 
 - [ ] **Step 3: Rodar e confirmar que falham**
 
-Run: `./gradlew test`
+Run: `./mvnw test`
 Expected: FAIL na compilação — `Email`, `RawPassword`, `User` e as exceções não existem.
 
 - [ ] **Step 4: Implementar as exceções de domínio**
@@ -899,7 +1056,7 @@ public class AuthServiceApplication {
 
 - [ ] **Step 6: Rodar os testes e confirmar que passam**
 
-Run: `./gradlew test`
+Run: `./mvnw test`
 Expected: PASS — todos os testes de domínio verdes.
 
 - [ ] **Step 7: Commit**
@@ -1059,7 +1216,7 @@ class JpaUserRepositoryIT {
 
 - [ ] **Step 4: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*JpaUserRepositoryIT'`
+Run: `./mvnw test -Dtest='*JpaUserRepositoryIT'`
 Expected: FAIL — `UserRepository` não existe.
 
 - [ ] **Step 5: Implementar o port e os adapters**
@@ -1207,7 +1364,7 @@ class JpaUserRepository implements UserRepository {
 
 - [ ] **Step 6: Rodar e confirmar que passa**
 
-Run: `./gradlew test --tests '*JpaUserRepositoryIT'`
+Run: `./mvnw test -Dtest='*JpaUserRepositoryIT'`
 Expected: PASS — Testcontainers sobe o PostgreSQL 16, o Flyway aplica `V1` e os três testes ficam verdes.
 
 - [ ] **Step 7: Commit**
@@ -1320,7 +1477,7 @@ class RegisterUserUseCaseTest {
 
 - [ ] **Step 2: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*RegisterUserUseCaseTest'`
+Run: `./mvnw test -Dtest='*RegisterUserUseCaseTest'`
 Expected: FAIL — `RegisterUserUseCase` e `PasswordHasher` não existem.
 
 - [ ] **Step 3: Implementar o port e o use case**
@@ -1381,7 +1538,7 @@ public class RegisterUserUseCase {
 
 - [ ] **Step 4: Rodar e confirmar que passa**
 
-Run: `./gradlew test --tests '*RegisterUserUseCaseTest'`
+Run: `./mvnw test -Dtest='*RegisterUserUseCaseTest'`
 Expected: PASS — 4 testes verdes.
 
 - [ ] **Step 5: Escrever o teste do endpoint (falha)**
@@ -1463,7 +1620,7 @@ Adicione o import estático `org.springframework.test.web.servlet.result.MockMvc
 
 - [ ] **Step 6: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*AuthControllerRegisterTest'`
+Run: `./mvnw test -Dtest='*AuthControllerRegisterTest'`
 Expected: FAIL — `AuthController` não existe.
 
 - [ ] **Step 7: Implementar DTOs, controller, handler de erro e `SecurityConfig`**
@@ -1638,7 +1795,7 @@ public class SecurityConfig {
 
 - [ ] **Step 8: Rodar a suíte inteira**
 
-Run: `./gradlew test`
+Run: `./mvnw test`
 Expected: PASS — testes de domínio, do use case, do controller e a integração da Task 4.
 
 - [ ] **Step 9: Commit**
@@ -1767,7 +1924,7 @@ class AuthenticateUserUseCaseTest {
 
 - [ ] **Step 2: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*AuthenticateUserUseCaseTest'`
+Run: `./mvnw test -Dtest='*AuthenticateUserUseCaseTest'`
 Expected: FAIL — `AuthenticateUserUseCase`, `TokenIssuer` e `AccessToken` não existem.
 
 - [ ] **Step 3: Implementar `AccessToken`, `TokenIssuer` e o use case**
@@ -1845,7 +2002,7 @@ public class AuthenticateUserUseCase {
 
 - [ ] **Step 4: Rodar e confirmar que passa**
 
-Run: `./gradlew test --tests '*AuthenticateUserUseCaseTest'`
+Run: `./mvnw test -Dtest='*AuthenticateUserUseCaseTest'`
 Expected: PASS — 4 testes verdes.
 
 - [ ] **Step 5: Escrever o teste do emissor de token (falha)**
@@ -1898,7 +2055,7 @@ class NimbusTokenIssuerTest {
 
 - [ ] **Step 6: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*NimbusTokenIssuerTest'`
+Run: `./mvnw test -Dtest='*NimbusTokenIssuerTest'`
 Expected: FAIL — `RsaKeyProvider` e `NimbusTokenIssuer` não existem.
 
 - [ ] **Step 7: Implementar a chave, o emissor e os endpoints**
@@ -2110,8 +2267,8 @@ Trecho a acrescentar no controller:
 `/me` lê os dados do próprio token, sem consultar o banco — o JWT já carrega
 `sub`, `email` e `name`. Importe `GetMapping`, `AuthenticationPrincipal`, `Jwt` e `UUID`.
 Para que o endpoint exija token, o `auth-service` precisa validar JWT: acrescente
-`implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'`
-ao `build.gradle` e, no `SecurityConfig`, `.oauth2ResourceServer(o -> o.jwt(j -> {}))`
+a dependência `org.springframework.boot:spring-boot-starter-oauth2-resource-server`
+ao `pom.xml` e, no `SecurityConfig`, `.oauth2ResourceServer(o -> o.jwt(j -> {}))`
 mais a propriedade `spring.security.oauth2.resourceserver.jwt.jwk-set-uri:
 http://localhost:8081/.well-known/jwks.json` no `application.yml`.
 
@@ -2137,7 +2294,7 @@ Teste a acrescentar em `AuthControllerRegisterTest`:
 
 - [ ] **Step 8: Rodar a suíte inteira**
 
-Run: `./gradlew build`
+Run: `./mvnw verify`
 Expected: PASS, incluindo a verificação de cobertura do JaCoCo.
 
 - [ ] **Step 9: Commit**
@@ -2161,24 +2318,24 @@ disponivel em /.well-known/jwks.json para o video-api validar tokens."
 - Create: `services/fiapx-auth-service/README.md`
 
 **Interfaces:**
-- Consumes: o jar produzido por `./gradlew bootJar`.
+- Consumes: o jar produzido por `./mvnw package`.
 - Produces: imagem `fiapx/auth-service:local`, usada no `docker-compose.yml` da Task 22.
 
 - [ ] **Step 1: Escrever o `Dockerfile`**
 
 ```dockerfile
 # syntax=docker/dockerfile:1
-FROM gradle:8.10-jdk21-alpine AS build
+FROM maven:3.9-eclipse-temurin-21-alpine AS build
 WORKDIR /app
-COPY settings.gradle build.gradle ./
-RUN gradle dependencies --no-daemon || true
+COPY pom.xml ./
+RUN mvn -B -q dependency:go-offline || true
 COPY src ./src
-RUN gradle bootJar --no-daemon
+RUN mvn -B -q package -DskipTests
 
 FROM eclipse-temurin:21-jre-alpine
 RUN addgroup -S fiapx && adduser -S fiapx -G fiapx
 WORKDIR /app
-COPY --from=build /app/build/libs/*.jar app.jar
+COPY --from=build /app/target/*.jar app.jar
 USER fiapx
 EXPOSE 8081
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75"
@@ -2188,15 +2345,15 @@ ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
 ```
 
 > O `fiapx-contracts` ainda não é dependência do `auth-service`, por isso o build
-> da imagem não precisa do `mavenLocal()`. Nos Dockerfiles do `video-api` e do
-> worker (Tasks 16 e 21) o jar de contratos é copiado para dentro do build.
+> da imagem não precisa instalar o jar de contratos. Nos Dockerfiles do `video-api` e
+> do worker (Tasks 15 e 20) o `fiapx-contracts` é instalado (`mvn install`) no
+> repositório Maven local do próprio estágio de build.
 
 - [ ] **Step 2: Escrever o `.dockerignore`**
 
 ```
 .git
-.gradle
-build
+target
 *.md
 ```
 
@@ -2224,7 +2381,7 @@ em `/.well-known/jwks.json`.
 
 ## Rodar os testes
 
-    ./gradlew build
+    ./mvnw verify
 
 Requer Docker: os testes de integração usam Testcontainers (PostgreSQL 16).
 
@@ -2253,7 +2410,7 @@ JRE alpine, usuario nao-root e healthcheck no probe de readiness."
 O coração do sistema: o value object que valida o arquivo e a máquina de estados que garante idempotência.
 
 **Files:**
-- Create: `services/fiapx-video-api/{settings.gradle,build.gradle}`
+- Create: `services/fiapx-video-api/pom.xml`
 - Create: `src/main/java/br/com/fiapx/video/VideoApiApplication.java`
 - Create: `src/main/java/br/com/fiapx/video/domain/{VideoFile,VideoStatus,Video}.java`
 - Create: `src/main/java/br/com/fiapx/video/domain/exception/{DomainException,InvalidVideoFileException,VideoNotFoundException,VideoNotReadyException}.java`
@@ -2269,78 +2426,206 @@ O coração do sistema: o value object que valida o arquivo e a máquina de esta
   - `boolean markProcessing()`, `boolean markCompleted(String s3ZipKey, int frameCount)`, `boolean markFailed(ErrorCode code, String message)` — retornam `false` quando a transição não é permitida
   - Acessores: `id()`, `userId()`, `userEmail()`, `originalFilename()`, `sizeBytes()`, `s3RawKey()`, `s3ZipKey()`, `status()`, `frameCount()`, `errorCode()`, `errorMessage()`, `attempts()`, `createdAt()`, `startedAt()`, `finishedAt()`
 
-- [ ] **Step 1: Criar o repositório e o `build.gradle`**
+- [ ] **Step 1: Criar o repositório, o Maven wrapper e o `pom.xml`**
 
 ```bash
 cd services && mkdir -p fiapx-video-api && cd fiapx-video-api && git init
-gradle wrapper --gradle-version 8.10
+cp -r ../fiapx-contracts/mvnw ../fiapx-contracts/mvnw.cmd ../fiapx-contracts/.mvn .
 ```
 
-`settings.gradle`:
-```groovy
-rootProject.name = 'fiapx-video-api'
-```
+`pom.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
 
-`build.gradle`:
-```groovy
-plugins {
-    id 'java'
-    id 'jacoco'
-    id 'org.springframework.boot' version '3.3.5'
-    id 'io.spring.dependency-management' version '1.1.6'
-}
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
 
-group = 'br.com.fiapx'
-version = '1.0.0'
-java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+    <groupId>br.com.fiapx</groupId>
+    <artifactId>fiapx-video-api</artifactId>
+    <version>1.0.0</version>
 
-repositories { mavenCentral(); mavenLocal() }
+    <properties>
+        <java.version>21</java.version>
+        <testcontainers.version>1.20.3</testcontainers.version>
+        <spring-cloud-aws.version>3.2.1</spring-cloud-aws.version>
+    </properties>
 
-dependencyManagement {
-    imports { mavenBom 'io.awspring.cloud:spring-cloud-aws-dependencies:3.2.1' }
-}
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.awspring.cloud</groupId>
+                <artifactId>spring-cloud-aws-dependencies</artifactId>
+                <version>${spring-cloud-aws.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
-dependencies {
-    implementation 'br.com.fiapx:fiapx-contracts:1.0.0'
+    <dependencies>
+        <dependency>
+            <groupId>br.com.fiapx</groupId>
+            <artifactId>fiapx-contracts</artifactId>
+            <version>1.0.0</version>
+        </dependency>
 
-    implementation 'org.springframework.boot:spring-boot-starter-web'
-    implementation 'org.springframework.boot:spring-boot-starter-validation'
-    implementation 'org.springframework.boot:spring-boot-starter-security'
-    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
-    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.springframework.boot:spring-boot-starter-actuator'
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
-    implementation 'org.flywaydb:flyway-core'
-    implementation 'org.flywaydb:flyway-database-postgresql'
-    implementation 'io.awspring.cloud:spring-cloud-aws-starter-s3'
-    implementation 'io.awspring.cloud:spring-cloud-aws-starter-sqs'
-    implementation 'software.amazon.awssdk:s3'
-    runtimeOnly 'org.postgresql:postgresql'
-    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.6.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.awspring.cloud</groupId>
+            <artifactId>spring-cloud-aws-starter-s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.awspring.cloud</groupId>
+            <artifactId>spring-cloud-aws-starter-sqs</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'org.springframework.security:spring-security-test'
-    testImplementation platform('org.testcontainers:testcontainers-bom:1.20.3')
-    testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation 'org.testcontainers:postgresql'
-    testImplementation 'org.testcontainers:localstack'
-    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
-}
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>localstack</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
-test {
-    useJUnitPlatform()
-    finalizedBy jacocoTestCoverageVerification
-}
-
-jacocoTestCoverageVerification {
-    violationRules {
-        rule {
-            element = 'PACKAGE'
-            includes = ['br.com.fiapx.video.domain*', 'br.com.fiapx.video.application*']
-            limit { counter = 'LINE'; minimum = 0.80 }
-        }
-    }
-}
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*IT.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>PACKAGE</element>
+                                    <includes>
+                                        <include>br.com.fiapx.video.domain*</include>
+                                        <include>br.com.fiapx.video.application*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
 ```
 
 - [ ] **Step 2: Escrever os testes de domínio (falham)**
@@ -2541,7 +2826,7 @@ class VideoTest {
 
 - [ ] **Step 3: Rodar e confirmar que falham**
 
-Run: `./gradlew test`
+Run: `./mvnw test`
 Expected: FAIL na compilação — nenhuma classe de domínio existe.
 
 - [ ] **Step 4: Implementar as exceções**
@@ -2779,7 +3064,7 @@ public class VideoApiApplication {
 
 - [ ] **Step 7: Rodar os testes e confirmar que passam**
 
-Run: `./gradlew test`
+Run: `./mvnw test`
 Expected: PASS — 17 testes de domínio verdes.
 
 - [ ] **Step 8: Commit**
@@ -3031,7 +3316,7 @@ class JpaVideoRepositoryIT {
 
 - [ ] **Step 4: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*JpaVideoRepositoryIT'`
+Run: `./mvnw test -Dtest='*JpaVideoRepositoryIT'`
 Expected: FAIL — `VideoRepository` não existe.
 
 - [ ] **Step 5: Implementar o port**
@@ -3334,7 +3619,7 @@ class JpaVideoRepository implements VideoRepository {
 
 - [ ] **Step 7: Rodar e confirmar que passa**
 
-Run: `./gradlew test --tests '*JpaVideoRepositoryIT'`
+Run: `./mvnw test -Dtest='*JpaVideoRepositoryIT'`
 Expected: PASS — 6 testes verdes.
 
 - [ ] **Step 8: Commit**
@@ -3476,7 +3761,7 @@ class S3VideoStorageIT {
 
 - [ ] **Step 2: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*S3VideoStorageIT'`
+Run: `./mvnw test -Dtest='*S3VideoStorageIT'`
 Expected: FAIL — `VideoStorage` não existe.
 
 - [ ] **Step 3: Implementar o port**
@@ -3631,7 +3916,7 @@ public class StorageException extends RuntimeException {
 
 - [ ] **Step 5: Rodar e confirmar que passa**
 
-Run: `./gradlew test --tests '*S3VideoStorageIT'`
+Run: `./mvnw test -Dtest='*S3VideoStorageIT'`
 Expected: PASS — o LocalStack sobe, o objeto é gravado na chave esperada e a URL assinada baixa o conteúdo.
 
 - [ ] **Step 6: Commit**
@@ -3763,7 +4048,7 @@ class SubmitVideoUseCaseTest {
 
 - [ ] **Step 2: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*SubmitVideoUseCaseTest'`
+Run: `./mvnw test -Dtest='*SubmitVideoUseCaseTest'`
 Expected: FAIL — `SubmitVideoUseCase` e `VideoEventPublisher` não existem.
 
 - [ ] **Step 3: Implementar o port e o use case**
@@ -3831,7 +4116,7 @@ public class SubmitVideoUseCase {
 
 - [ ] **Step 4: Rodar e confirmar que passa**
 
-Run: `./gradlew test --tests '*SubmitVideoUseCaseTest'`
+Run: `./mvnw test -Dtest='*SubmitVideoUseCaseTest'`
 Expected: PASS — 4 testes verdes.
 
 - [ ] **Step 5: Escrever o teste de integração do publisher (falha)**
@@ -3916,7 +4201,7 @@ class SqsVideoEventPublisherIT {
 
 - [ ] **Step 6: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*SqsVideoEventPublisherIT'`
+Run: `./mvnw test -Dtest='*SqsVideoEventPublisherIT'`
 Expected: FAIL — `SqsVideoEventPublisher` não existe.
 
 - [ ] **Step 7: Implementar o publisher**
@@ -3973,7 +4258,7 @@ class SqsVideoEventPublisher implements VideoEventPublisher {
 
 - [ ] **Step 8: Rodar e confirmar que passa**
 
-Run: `./gradlew test --tests '*SqsVideoEventPublisherIT'`
+Run: `./mvnw test -Dtest='*SqsVideoEventPublisherIT'`
 Expected: PASS — a mensagem chega à fila com o envelope completo.
 
 - [ ] **Step 9: Commit**
@@ -4093,7 +4378,7 @@ class VideoControllerUploadTest {
 
 - [ ] **Step 2: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*VideoControllerUploadTest'`
+Run: `./mvnw test -Dtest='*VideoControllerUploadTest'`
 Expected: FAIL — `VideoController` e `SecurityConfig` não existem.
 
 - [ ] **Step 3: Implementar `SecurityConfig` e `AuthenticatedUser`**
@@ -4275,7 +4560,7 @@ public class ApiExceptionHandler {
 
 - [ ] **Step 5: Rodar e confirmar que passa**
 
-Run: `./gradlew test --tests '*VideoControllerUploadTest'`
+Run: `./mvnw test -Dtest='*VideoControllerUploadTest'`
 Expected: PASS — 202 com token válido, 401 sem token, 400 em problem+json para formato inválido.
 
 - [ ] **Step 6: Commit**
@@ -4444,7 +4729,7 @@ class GenerateDownloadLinkUseCaseTest {
 
 - [ ] **Step 2: Rodar e confirmar que falham**
 
-Run: `./gradlew test --tests '*UseCaseTest'`
+Run: `./mvnw test -Dtest='*UseCaseTest'`
 Expected: FAIL — `GetVideoUseCase`, `GenerateDownloadLinkUseCase` e `DownloadLink` não existem.
 
 - [ ] **Step 3: Implementar os três use cases**
@@ -4571,7 +4856,7 @@ public class GenerateDownloadLinkUseCase {
 
 - [ ] **Step 4: Rodar e confirmar que passam**
 
-Run: `./gradlew test --tests '*UseCaseTest'`
+Run: `./mvnw test -Dtest='*UseCaseTest'`
 Expected: PASS — 5 testes verdes.
 
 - [ ] **Step 5: Escrever o teste dos endpoints de leitura (falha)**
@@ -4692,7 +4977,7 @@ class VideoControllerReadTest {
 
 - [ ] **Step 6: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*VideoControllerReadTest'`
+Run: `./mvnw test -Dtest='*VideoControllerReadTest'`
 Expected: FAIL — os endpoints de leitura ainda não existem no controller.
 
 - [ ] **Step 7: Implementar os DTOs e os endpoints**
@@ -4760,7 +5045,7 @@ Trechos a acrescentar no controller:
 
 - [ ] **Step 8: Rodar a suíte inteira**
 
-Run: `./gradlew build`
+Run: `./mvnw verify`
 Expected: PASS, incluindo a verificação de cobertura.
 
 - [ ] **Step 9: Commit**
@@ -4883,7 +5168,7 @@ class ApplyProcessingResultUseCaseTest {
 
 - [ ] **Step 2: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*ApplyProcessingResultUseCaseTest'`
+Run: `./mvnw test -Dtest='*ApplyProcessingResultUseCaseTest'`
 Expected: FAIL — `ApplyProcessingResultUseCase` não existe.
 
 - [ ] **Step 3: Implementar o use case**
@@ -4953,7 +5238,7 @@ public class ApplyProcessingResultUseCase {
 
 - [ ] **Step 4: Rodar e confirmar que passa**
 
-Run: `./gradlew test --tests '*ApplyProcessingResultUseCaseTest'`
+Run: `./mvnw test -Dtest='*ApplyProcessingResultUseCaseTest'`
 Expected: PASS — 5 testes verdes.
 
 - [ ] **Step 5: Escrever o teste de integração do listener (falha)**
@@ -5027,11 +5312,19 @@ class VideoStatusListenerIT {
 }
 ```
 
-Adicione ao `build.gradle`: `testImplementation 'org.awaitility:awaitility:4.2.2'`.
+Adicione ao `pom.xml` (versão gerenciada pelo Spring Boot):
+
+```xml
+<dependency>
+    <groupId>org.awaitility</groupId>
+    <artifactId>awaitility</artifactId>
+    <scope>test</scope>
+</dependency>
+```
 
 - [ ] **Step 6: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*VideoStatusListenerIT'`
+Run: `./mvnw test -Dtest='*VideoStatusListenerIT'`
 Expected: FAIL — o listener não existe, o vídeo continua em `PROCESSING`.
 
 - [ ] **Step 7: Implementar o listener**
@@ -5106,7 +5399,7 @@ class VideoStatusListener {
 
 - [ ] **Step 8: Rodar a suíte inteira**
 
-Run: `./gradlew build`
+Run: `./mvnw verify`
 Expected: PASS — inclusive o `VideoStatusListenerIT`.
 
 - [ ] **Step 9: Commit**
@@ -5136,22 +5429,23 @@ transicao proibida, evitando que uma mensagem ruim fique reciclando na fila."
 # syntax=docker/dockerfile:1
 # O contexto de build precisa ser services/, para alcançar fiapx-contracts:
 #   docker build -f fiapx-video-api/Dockerfile -t fiapx/video-api:local ..
-FROM gradle:8.10-jdk21-alpine AS build
+FROM maven:3.9-eclipse-temurin-21-alpine AS build
 WORKDIR /workspace
 
-COPY fiapx-contracts /workspace/fiapx-contracts
-RUN cd /workspace/fiapx-contracts && gradle publishToMavenLocal --no-daemon
+COPY fiapx-contracts/pom.xml /workspace/fiapx-contracts/pom.xml
+COPY fiapx-contracts/src /workspace/fiapx-contracts/src
+RUN mvn -B -q -f /workspace/fiapx-contracts/pom.xml install -DskipTests
 
-COPY fiapx-video-api/settings.gradle fiapx-video-api/build.gradle /workspace/app/
+COPY fiapx-video-api/pom.xml /workspace/app/
 WORKDIR /workspace/app
-RUN gradle dependencies --no-daemon || true
+RUN mvn -B -q dependency:go-offline || true
 COPY fiapx-video-api/src /workspace/app/src
-RUN gradle bootJar --no-daemon
+RUN mvn -B -q package -DskipTests
 
 FROM eclipse-temurin:21-jre-alpine
 RUN addgroup -S fiapx && adduser -S fiapx -G fiapx
 WORKDIR /app
-COPY --from=build /workspace/app/build/libs/*.jar app.jar
+COPY --from=build /workspace/app/target/*.jar app.jar
 USER fiapx
 EXPOSE 8082
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75"
@@ -5164,8 +5458,7 @@ ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
 
 ```
 .git
-.gradle
-build
+target
 *.md
 ```
 
@@ -5195,7 +5488,7 @@ Consome `video-status-queue` para atualizar `PENDING → PROCESSING → COMPLETE
 
 ## Rodar os testes
 
-    ./gradlew build
+    ./mvnw verify
 
 Requer Docker: Testcontainers sobe PostgreSQL 16 e LocalStack (S3, SQS, SNS).
 
@@ -5217,8 +5510,8 @@ Requer Docker: Testcontainers sobe PostgreSQL 16 e LocalStack (S3, SQS, SNS).
 git add -A
 git commit -m "build: imagem do video-api com o jar de contratos
 
-O build multi-stage publica fiapx-contracts no mavenLocal do estagio de
-build, evitando depender de um registry na fase 1."
+O build multi-stage instala fiapx-contracts no repositorio Maven local do
+estagio de build, evitando depender de um registry na fase 1."
 ```
 
 ---
@@ -5226,7 +5519,7 @@ build, evitando depender de um registry na fase 1."
 ## Task 16: `processing-worker` — esqueleto, ports e compactação em ZIP
 
 **Files:**
-- Create: `services/fiapx-processing-worker/{settings.gradle,build.gradle}`
+- Create: `services/fiapx-processing-worker/pom.xml`
 - Create: `src/main/java/br/com/fiapx/worker/WorkerApplication.java`
 - Create: `src/main/java/br/com/fiapx/worker/application/exception/ProcessingException.java`
 - Create: `src/main/java/br/com/fiapx/worker/application/port/out/{VideoObjectStorage,FrameExtractor,ArchiveWriter,ProcessingEventPublisher}.java`
@@ -5242,70 +5535,172 @@ build, evitando depender de um registry na fase 1."
   - `ArchiveWriter`: `void write(List<Path> files, Path target)`
   - `ProcessingEventPublisher`: `void publishStarted(UUID videoId, UUID userId, int attempt)`, `void publishProcessed(UUID videoId, UUID userId, String s3ZipKey, int frameCount, long millis)`, `void publishFailed(UUID videoId, UUID userId, String userEmail, ErrorCode code, String message, int attempt)`
 
-- [ ] **Step 1: Criar o repositório e o `build.gradle`**
+- [ ] **Step 1: Criar o repositório, o Maven wrapper e o `pom.xml`**
 
 ```bash
 cd services && mkdir -p fiapx-processing-worker && cd fiapx-processing-worker && git init
-gradle wrapper --gradle-version 8.10
+cp -r ../fiapx-contracts/mvnw ../fiapx-contracts/mvnw.cmd ../fiapx-contracts/.mvn .
 ```
 
-`settings.gradle`:
-```groovy
-rootProject.name = 'fiapx-processing-worker'
-```
+`pom.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
 
-`build.gradle`:
-```groovy
-plugins {
-    id 'java'
-    id 'jacoco'
-    id 'org.springframework.boot' version '3.3.5'
-    id 'io.spring.dependency-management' version '1.1.6'
-}
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
 
-group = 'br.com.fiapx'
-version = '1.0.0'
-java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+    <groupId>br.com.fiapx</groupId>
+    <artifactId>fiapx-processing-worker</artifactId>
+    <version>1.0.0</version>
 
-repositories { mavenCentral(); mavenLocal() }
+    <properties>
+        <java.version>21</java.version>
+        <testcontainers.version>1.20.3</testcontainers.version>
+        <spring-cloud-aws.version>3.2.1</spring-cloud-aws.version>
+    </properties>
 
-dependencyManagement {
-    imports { mavenBom 'io.awspring.cloud:spring-cloud-aws-dependencies:3.2.1' }
-}
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.awspring.cloud</groupId>
+                <artifactId>spring-cloud-aws-dependencies</artifactId>
+                <version>${spring-cloud-aws.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
-dependencies {
-    implementation 'br.com.fiapx:fiapx-contracts:1.0.0'
+    <dependencies>
+        <dependency>
+            <groupId>br.com.fiapx</groupId>
+            <artifactId>fiapx-contracts</artifactId>
+            <version>1.0.0</version>
+        </dependency>
 
-    implementation 'org.springframework.boot:spring-boot-starter'
-    implementation 'org.springframework.boot:spring-boot-starter-actuator'
-    implementation 'io.awspring.cloud:spring-cloud-aws-starter-sqs'
-    implementation 'io.awspring.cloud:spring-cloud-aws-starter-sns'
-    implementation 'io.awspring.cloud:spring-cloud-aws-starter-s3'
-    implementation 'software.amazon.awssdk:s3'
-    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+        <!-- Web só para expor /actuator na porta 8083 (healthcheck, probes do K8s e
+             scrape do Prometheus). O worker não tem controllers. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.awspring.cloud</groupId>
+            <artifactId>spring-cloud-aws-starter-sqs</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.awspring.cloud</groupId>
+            <artifactId>spring-cloud-aws-starter-sns</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.awspring.cloud</groupId>
+            <artifactId>spring-cloud-aws-starter-s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation platform('org.testcontainers:testcontainers-bom:1.20.3')
-    testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation 'org.testcontainers:localstack'
-    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
-    testImplementation 'org.awaitility:awaitility:4.2.2'
-}
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>localstack</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
-test {
-    useJUnitPlatform()
-    finalizedBy jacocoTestCoverageVerification
-}
-
-jacocoTestCoverageVerification {
-    violationRules {
-        rule {
-            element = 'PACKAGE'
-            includes = ['br.com.fiapx.worker.application*']
-            limit { counter = 'LINE'; minimum = 0.80 }
-        }
-    }
-}
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*IT.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>PACKAGE</element>
+                                    <includes>
+                                        <include>br.com.fiapx.worker.application*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
 ```
 
 - [ ] **Step 2: Escrever o teste do compactador (falha)**
@@ -5374,7 +5769,7 @@ class ZipArchiveWriterTest {
 
 - [ ] **Step 3: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*ZipArchiveWriterTest'`
+Run: `./mvnw test -Dtest='*ZipArchiveWriterTest'`
 Expected: FAIL — `ZipArchiveWriter` não existe.
 
 - [ ] **Step 4: Implementar as exceções e os ports**
@@ -5532,7 +5927,7 @@ public class WorkerApplication {
 
 - [ ] **Step 6: Rodar e confirmar que passa**
 
-Run: `./gradlew test --tests '*ZipArchiveWriterTest'`
+Run: `./mvnw test -Dtest='*ZipArchiveWriterTest'`
 Expected: PASS — ZIP flat, deflate, entradas ordenadas.
 
 - [ ] **Step 7: Commit**
@@ -5693,7 +6088,7 @@ class FfmpegFrameExtractorTest {
 
 - [ ] **Step 4: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*FfmpegFrameExtractorTest'`
+Run: `./mvnw test -Dtest='*FfmpegFrameExtractorTest'`
 Expected: FAIL — `FfmpegFrameExtractor` não existe.
 
 - [ ] **Step 5: Implementar o extrator**
@@ -5792,7 +6187,7 @@ public class FfmpegFrameExtractor implements FrameExtractor {
 
 - [ ] **Step 6: Rodar e confirmar que passa**
 
-Run: `./gradlew test --tests '*FfmpegFrameExtractorTest'`
+Run: `./mvnw test -Dtest='*FfmpegFrameExtractorTest'`
 Expected: PASS — 2 frames extraídos do vídeo de 2 s; erros mapeados para `FFMPEG_FAILURE` e `TIMEOUT`.
 
 - [ ] **Step 7: Commit**
@@ -5991,7 +6386,7 @@ class SnsProcessingEventPublisherIT {
 
 - [ ] **Step 2: Rodar e confirmar que falham**
 
-Run: `./gradlew test --tests '*IT'`
+Run: `./mvnw test -Dtest='*IT'`
 Expected: FAIL — nenhum dos dois adapters existe.
 
 - [ ] **Step 3: Implementar `AwsConfig` e o adapter de S3**
@@ -6155,7 +6550,7 @@ class SnsProcessingEventPublisher implements ProcessingEventPublisher {
 
 - [ ] **Step 5: Rodar e confirmar que passam**
 
-Run: `./gradlew test --tests '*IT'`
+Run: `./mvnw test -Dtest='*IT'`
 Expected: PASS — download e upload no bucket, e os dois eventos chegando à fila assinada no tópico.
 
 - [ ] **Step 6: Commit**
@@ -6313,7 +6708,7 @@ class ProcessVideoUseCaseTest {
 
 - [ ] **Step 2: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*ProcessVideoUseCaseTest'`
+Run: `./mvnw test -Dtest='*ProcessVideoUseCaseTest'`
 Expected: FAIL — `ProcessVideoUseCase` não existe.
 
 - [ ] **Step 3: Implementar o use case**
@@ -6429,7 +6824,7 @@ public class ProcessVideoUseCase {
 
 - [ ] **Step 4: Rodar e confirmar que passa**
 
-Run: `./gradlew test --tests '*ProcessVideoUseCaseTest'`
+Run: `./mvnw test -Dtest='*ProcessVideoUseCaseTest'`
 Expected: PASS — 5 testes verdes, inclusive os dois que verificam que o diretório temporário sumiu.
 
 - [ ] **Step 5: Commit**
@@ -6537,7 +6932,7 @@ class VideoProcessingListenerIT {
 
 - [ ] **Step 2: Rodar e confirmar que falha**
 
-Run: `./gradlew test --tests '*VideoProcessingListenerIT'`
+Run: `./mvnw test -Dtest='*VideoProcessingListenerIT'`
 Expected: FAIL — o listener não existe, o ZIP nunca aparece no bucket.
 
 - [ ] **Step 3: Implementar o listener**
@@ -6590,7 +6985,7 @@ class VideoProcessingListener {
 
 - [ ] **Step 4: Rodar e confirmar que passa**
 
-Run: `./gradlew build`
+Run: `./mvnw verify`
 Expected: PASS — o ZIP aparece no bucket em `processed/{userId}/{videoId}.zip`.
 
 - [ ] **Step 5: Escrever o `Dockerfile` com ffmpeg**
@@ -6599,24 +6994,25 @@ Expected: PASS — o ZIP aparece no bucket em `processed/{userId}/{videoId}.zip`
 # syntax=docker/dockerfile:1
 # Contexto de build: services/
 #   docker build -f fiapx-processing-worker/Dockerfile -t fiapx/processing-worker:local ..
-FROM gradle:8.10-jdk21-alpine AS build
+FROM maven:3.9-eclipse-temurin-21-alpine AS build
 WORKDIR /workspace
 
-COPY fiapx-contracts /workspace/fiapx-contracts
-RUN cd /workspace/fiapx-contracts && gradle publishToMavenLocal --no-daemon
+COPY fiapx-contracts/pom.xml /workspace/fiapx-contracts/pom.xml
+COPY fiapx-contracts/src /workspace/fiapx-contracts/src
+RUN mvn -B -q -f /workspace/fiapx-contracts/pom.xml install -DskipTests
 
-COPY fiapx-processing-worker/settings.gradle fiapx-processing-worker/build.gradle /workspace/app/
+COPY fiapx-processing-worker/pom.xml /workspace/app/
 WORKDIR /workspace/app
-RUN gradle dependencies --no-daemon || true
+RUN mvn -B -q dependency:go-offline || true
 COPY fiapx-processing-worker/src /workspace/app/src
-RUN gradle bootJar --no-daemon -x test
+RUN mvn -B -q package -DskipTests
 
 FROM eclipse-temurin:21-jre-alpine
 RUN apk add --no-cache ffmpeg \
  && addgroup -S fiapx && adduser -S fiapx -G fiapx \
  && mkdir -p /tmp/fiapx && chown fiapx:fiapx /tmp/fiapx
 WORKDIR /app
-COPY --from=build /workspace/app/build/libs/*.jar app.jar
+COPY --from=build /workspace/app/target/*.jar app.jar
 USER fiapx
 EXPOSE 8083
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75"
@@ -6628,8 +7024,7 @@ ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
 `.dockerignore`:
 ```
 .git
-.gradle
-build
+target
 *.md
 ```
 
@@ -6655,7 +7050,7 @@ em ZIP e publica o resultado no tópico SNS `video-events`. Não expõe API — 
 
 ## Rodar os testes
 
-    ./gradlew build
+    ./mvnw verify
 
 Requer Docker (LocalStack) e `ffmpeg` no PATH.
 
@@ -6969,46 +7364,101 @@ com DLQ e topico, e dois workers. Sem nenhuma credencial AWS real."
 Prova de que a fatia vertical funciona, e a rede de segurança que mantém o Compose vivo enquanto a fase 2 avança.
 
 **Files:**
-- Create: `e2e/{settings.gradle,build.gradle}`
+- Create: `e2e/pom.xml`
 - Create: `e2e/src/test/java/br/com/fiapx/e2e/VideoProcessingE2ETest.java`
 - Create: `e2e/src/test/resources/fixtures/sample-2s.mp4` (cópia do fixture do worker)
 - Modify: `README.md`
 
 **Interfaces:**
 - Consumes: o ambiente da Task 21 (`http://localhost:8081` e `http://localhost:8082`).
-- Produces: `./gradlew test` em `e2e/` como critério de aceitação da fase 1.
+- Produces: `./mvnw test` em `e2e/` como critério de aceitação da fase 1.
 
-- [ ] **Step 1: Escrever o `build.gradle` do módulo e2e**
+- [ ] **Step 1: Escrever o `pom.xml` do módulo e2e e copiar o Maven wrapper**
 
-`e2e/settings.gradle`:
-```groovy
-rootProject.name = 'fiapx-e2e'
+```bash
+mkdir -p e2e
+cp -r services/fiapx-contracts/mvnw services/fiapx-contracts/mvnw.cmd services/fiapx-contracts/.mvn e2e/
 ```
 
-`e2e/build.gradle`:
-```groovy
-plugins {
-    id 'java'
-}
+`e2e/pom.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
 
-java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+    <groupId>br.com.fiapx</groupId>
+    <artifactId>fiapx-e2e</artifactId>
+    <version>1.0.0</version>
 
-repositories { mavenCentral() }
+    <properties>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Sobrescreva com -Dauth.url=... e -Dvideo.url=... para apontar para outro ambiente -->
+        <auth.url>http://localhost:8081</auth.url>
+        <video.url>http://localhost:8082</video.url>
+    </properties>
 
-dependencies {
-    testImplementation platform('org.junit:junit-bom:5.10.3')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
-    testImplementation 'io.rest-assured:rest-assured:5.5.0'
-    testImplementation 'org.assertj:assertj-core:3.26.3'
-    testImplementation 'org.awaitility:awaitility:4.2.2'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-}
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
+                <version>5.10.3</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
-test {
-    useJUnitPlatform()
-    systemProperty 'auth.url', System.getProperty('auth.url', 'http://localhost:8081')
-    systemProperty 'video.url', System.getProperty('video.url', 'http://localhost:8082')
-}
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <version>5.5.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>3.26.3</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>4.2.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+                <configuration>
+                    <systemPropertyVariables>
+                        <auth.url>${auth.url}</auth.url>
+                        <video.url>${video.url}</video.url>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
 ```
 
 - [ ] **Step 2: Copiar o fixture**
@@ -7178,7 +7628,7 @@ class VideoProcessingE2ETest {
 
 ```bash
 docker compose up --build -d
-cd e2e && ./gradlew test
+cd e2e && ./mvnw test
 ```
 Expected: PASS — os cinco testes verdes.
 
@@ -7189,7 +7639,7 @@ Acrescente:
 ## Testes de ponta a ponta
 
     docker compose up --build -d
-    cd e2e && ./gradlew test
+    cd e2e && ./mvnw test
 
 Cobrem: fluxo completo do upload ao ZIP, dois vídeos em paralelo, isolamento
 entre usuários, exigência de token e recusa de formato inválido.
@@ -7211,9 +7661,9 @@ verifica que um usuario nao enxerga o video de outro."
 
 A fase 1 está pronta quando **todos** os itens abaixo forem verdadeiros:
 
-- [ ] `./gradlew build` passa nos quatro repositórios, com a verificação de cobertura do JaCoCo.
+- [ ] `./mvnw verify` passa nos quatro repositórios, com a verificação de cobertura do JaCoCo.
 - [ ] `docker compose up --build` sobe o sistema sem nenhuma credencial AWS real.
-- [ ] `cd e2e && ./gradlew test` passa com os cinco testes.
+- [ ] `cd e2e && ./mvnw test` passa com os cinco testes.
 - [ ] Um vídeo de 2 s produz um ZIP com exatamente 2 frames PNG.
 - [ ] Dois vídeos enviados em sequência imediata são processados pelas duas réplicas do worker.
 - [ ] Requisição sem token responde `401`; vídeo de outro usuário responde `404`.

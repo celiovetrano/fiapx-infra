@@ -3,7 +3,7 @@
 
 **Data:** 2026-09-10
 **Contexto:** Hackathon POSTECH SOAT — Fase 5
-**Status:** Aprovado para implementação — revisado em 2026-09-12 (prazo de 7 dias; seções 12, 14, 15, 17, 18 e 19)
+**Status:** Aprovado para implementação — revisado em 2026-09-12 (prazo de 7 dias; seções 12, 14, 15, 17, 18 e 19; build trocado de Gradle para Maven)
 
 ---
 
@@ -72,9 +72,9 @@ Cada decisão abaixo vira um ADR curto em `fiapx-infra/docs/adr/`.
 
 | # | Decisão | Alternativas descartadas | Motivo |
 |---|---|---|---|
-| ADR-01 | Java 21 + Spring Boot 3.3 (Gradle) | Manter Go; Node/NestJS | Ecossistema maduro para segurança, persistência e observabilidade; alinhado ao curso |
+| ADR-01 | Java 21 + Spring Boot 3.3 com Maven (wrapper `mvnw`) | Manter Go; Node/NestJS; Gradle | Ecossistema maduro para segurança, persistência e observabilidade; alinhado ao curso |
 | ADR-02 | Cinco serviços, com API Gateway próprio | 2, 3 ou 4 serviços | Fronteiras de domínio explícitas; gateway centraliza roteamento e validação de token |
-| ADR-03 | Multi-repo (um repositório por serviço) | Monorepo Gradle | Ciclo de vida e deploy independentes por serviço |
+| ADR-03 | Multi-repo (um repositório por serviço) | Monorepo Maven multi-módulo | Ciclo de vida e deploy independentes por serviço |
 | ADR-04 | Clean Architecture / Hexagonal em todos os serviços | Camadas Controller/Service/Repository | Domínio testável sem framework; vocabulário do curso |
 | ADR-05 | AWS gerenciada: EKS, S3, SQS/SNS, RDS, SES, ECR | Self-hosted no cluster; ECS Fargate; Azure | Menos superfície operacional; durabilidade de fila e storage sem operar broker |
 | ADR-06 | Database per service, schemas separados na mesma instância RDS | Instância por serviço; banco único | Isolamento correto ao custo de uma instância (viável no free tier) |
@@ -383,7 +383,7 @@ da contagem.
 Cada repositório de serviço tem dois workflows.
 
 **`ci.yml`** (em pull request e push):
-`checkout` → `setup-java 21` → cache Gradle → `./gradlew build` (compila + testes
+`checkout` → `setup-java 21` → cache Maven (`~/.m2`) → `./mvnw verify` (compila + testes
 unitários e de integração) → verificação JaCoCo → build da imagem → **Trivy** →
 publica relatórios como artifacts.
 
@@ -481,7 +481,7 @@ demonstração gravável mesmo se o cluster EKS estiver indisponível.
 
 | Dia | Data | Entrega | Checkpoint ao final do dia |
 |---|---|---|---|
-| D1 | 12/09 | Plano 1, tarefas 1–7: workspace, `fiapx-contracts`, `auth-service` completo. Repositórios criados no GitHub. **Paralelo (usuário):** conta AWS com alarme de orçamento, instalar `aws` CLI e `terraform`, verificar o e-mail no SES | `auth-service` com `./gradlew build` verde |
+| D1 | 12/09 | Plano 1, tarefas 1–7: workspace, `fiapx-contracts`, `auth-service` completo. Repositórios criados no GitHub. **Paralelo (usuário):** conta AWS com alarme de orçamento, instalar `aws` CLI e `terraform`, verificar o e-mail no SES | `auth-service` com `./mvnw verify` verde |
 | D2 | 13/09 | Plano 1, tarefas 8–15: `video-api` completo | Upload `202` e listagem via testes de integração |
 | D3 | 14/09 | Plano 1, tarefas 16–22: `processing-worker`, Compose e E2E. Escrever o Plano 2 | **Demonstração local gravável** (critérios da Fase 1). Gravar um take de segurança |
 | D4 | 15/09 | Plano 2, parte 1: `notification-service` (SES e Mailpit local), gateway com UI estática, workflow de CI reutilizável aplicado aos sete repositórios | RF-05 comprovado no Compose; CI verde em todos os repositórios |
@@ -545,6 +545,6 @@ O projeto está pronto quando:
 4. `GET /api/v1/videos` lista somente os vídeos do usuário autenticado, com o status
    correto.
 5. Um vídeo corrompido resulta em `FAILED` com mensagem útil **e** e-mail recebido.
-6. `./gradlew build` passa em todos os repositórios, com JaCoCo acima de 80%.
+6. `./mvnw verify` passa em todos os repositórios, com JaCoCo acima de 80%.
 7. O pipeline de CD publica no EKS a partir de um push na `main`.
 8. `docker compose up` sobe o sistema completo sem nenhuma credencial AWS.

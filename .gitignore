@@ -7,10 +7,9 @@ __MACOSX/
 /services/*
 !/services/.gitkeep
 
-# Gradle / Java
-.gradle/
-build/
-!gradle/wrapper/gradle-wrapper.jar
+# Maven / Java
+target/
+!.mvn/wrapper/maven-wrapper.jar
 
 # Terraform (fase 2)
 .terraform/
