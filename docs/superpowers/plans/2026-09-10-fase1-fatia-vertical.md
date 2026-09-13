@@ -6199,6 +6199,7 @@ import java.util.stream.Stream;
 public class FfmpegFrameExtractor implements FrameExtractor {
 
     private static final Logger log = LoggerFactory.getLogger(FfmpegFrameExtractor.class);
+    private static final int MAX_LOG_CHARS = 2000;
 
     private final String binary;
     private final long timeoutSeconds;
@@ -6212,11 +6213,15 @@ public class FfmpegFrameExtractor implements FrameExtractor {
     @Override
     public List<Path> extract(Path video, Path outputDir) {
         Path padrao = outputDir.resolve("frame_%04d.png");
+        // A saída vai para um arquivo, e não para o pipe: num vídeo longo o pipe enche,
+        // o ffmpeg bloqueia na escrita e o waitFor estouraria como um TIMEOUT falso.
+        Path logFfmpeg = outputDir.resolve("ffmpeg.log");
 
         ProcessBuilder builder = new ProcessBuilder(
-                binary, "-i", video.toAbsolutePath().toString(),
+                binary, "-nostdin", "-i", video.toAbsolutePath().toString(),
                 "-vf", "fps=1", "-y", padrao.toAbsolutePath().toString());
         builder.redirectErrorStream(true);
+        builder.redirectOutput(logFfmpeg.toFile());
 
         Process processo = null;
         try {
@@ -6228,10 +6233,8 @@ public class FfmpegFrameExtractor implements FrameExtractor {
                         "ffmpeg excedeu " + timeoutSeconds + "s");
             }
 
-            String saida = new String(processo.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-
             if (processo.exitValue() != 0) {
-                log.warn("ffmpeg falhou com codigo {}: {}", processo.exitValue(), saida);
+                log.warn("ffmpeg falhou com codigo {}: {}", processo.exitValue(), finalDoLog(logFfmpeg));
                 throw new ProcessingException(ErrorCode.FFMPEG_FAILURE,
                         "ffmpeg retornou codigo " + processo.exitValue());
             }
@@ -6262,6 +6265,17 @@ public class FfmpegFrameExtractor implements FrameExtractor {
                     .filter(p -> p.getFileName().toString().endsWith(".png"))
                     .sorted(Comparator.comparing(p -> p.getFileName().toString()))
                     .toList();
+        }
+    }
+
+    private static String finalDoLog(Path logFfmpeg) {
+        try {
+            String conteudo = Files.readString(logFfmpeg, StandardCharsets.UTF_8);
+            return conteudo.length() <= MAX_LOG_CHARS
+                    ? conteudo
+                    : conteudo.substring(conteudo.length() - MAX_LOG_CHARS);
+        } catch (IOException ex) {
+            return "(log do ffmpeg indisponivel)";
         }
     }
 }
