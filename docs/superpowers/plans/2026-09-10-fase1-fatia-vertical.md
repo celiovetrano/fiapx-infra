@@ -3717,7 +3717,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -3747,7 +3747,7 @@ class S3VideoStorageIT {
     void criarBucket() {
         try {
             s3.headBucket(b -> b.bucket(bucket));
-        } catch (NoSuchBucketException | software.amazon.awssdk.services.s3.model.S3Exception ex) {
+        } catch (S3Exception ex) { // NoSuchBucketException é subtipo de S3Exception
             s3.createBucket(b -> b.bucket(bucket));
         }
     }
