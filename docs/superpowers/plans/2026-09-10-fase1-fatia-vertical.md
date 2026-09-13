@@ -1552,10 +1552,12 @@ import br.com.fiapx.auth.application.usecase.RegisterUserUseCase;
 import br.com.fiapx.auth.domain.Email;
 import br.com.fiapx.auth.domain.User;
 import br.com.fiapx.auth.domain.exception.EmailAlreadyRegisteredException;
+import br.com.fiapx.auth.infrastructure.security.SecurityConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -1565,7 +1567,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+// O slice @WebMvcTest não carrega classes @Configuration: sem o import valeria a
+// segurança padrão (CSRF ligado) e todo POST responderia 403.
 @WebMvcTest(AuthController.class)
+@Import(SecurityConfig.class)
 class AuthControllerRegisterTest {
 
     @Autowired
