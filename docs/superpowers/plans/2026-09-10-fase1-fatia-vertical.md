@@ -6079,7 +6079,11 @@ spring.cloud.aws:
     secret-key: ${AWS_SECRET_ACCESS_KEY:test}
   sqs:
     listener:
+      # Cada réplica só retira da fila o que consegue processar: o resto fica visível
+      # para as outras réplicas (é isso que dá sentido a escalar o worker pelo KEDA).
+      # O Spring Cloud AWS exige messages-per-poll <= concurrent-messages.
       max-concurrent-messages: 2
+      max-messages-per-poll: 2
 
 management:
   endpoints:
