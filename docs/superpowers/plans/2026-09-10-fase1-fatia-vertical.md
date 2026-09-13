@@ -5573,6 +5573,8 @@ Requer Docker: Testcontainers sobe PostgreSQL 16 e LocalStack (S3, SQS, SNS).
 | `SQS_PROCESSING_QUEUE` | `video-processing-queue` | Fila de saída |
 | `SQS_STATUS_QUEUE` | `video-status-queue` | Fila de entrada |
 | `AWS_ENDPOINT` | vazio | Aponte para o LocalStack no ambiente local |
+| `S3_PATH_STYLE` | `false` | `true` no LocalStack, onde o host virtual do bucket não resolve |
+| `S3_PUBLIC_ENDPOINT` | vazio | Host da URL assinada entregue ao navegador; no Compose, `http://localhost:4566` |
 ```
 
 - [ ] **Step 5: Commit**
