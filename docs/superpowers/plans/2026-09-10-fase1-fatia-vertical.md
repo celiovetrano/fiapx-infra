@@ -3938,9 +3938,51 @@ public class StorageException extends RuntimeException {
 }
 ```
 
+`src/test/java/br/com/fiapx/video/infrastructure/storage/S3VideoStorageTest.java` — sem ele o
+pacote `application.exception` fica com 0% de cobertura e derruba o gate do JaCoCo, que é
+por pacote. Também é o único teste que garante a tradução de falha do SDK em `STORAGE_FAILURE`:
+```java
+package br.com.fiapx.video.infrastructure.storage;
+
+import br.com.fiapx.contracts.ErrorCode;
+import br.com.fiapx.video.application.exception.StorageException;
+import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.core.exception.SdkClientException;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+
+import java.io.ByteArrayInputStream;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+class S3VideoStorageTest {
+
+    @Test
+    void falhaDoS3ViraStorageExceptionComCodigoDeErro() {
+        S3Client s3 = mock(S3Client.class);
+        when(s3.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
+                .thenThrow(SdkClientException.create("S3 fora do ar"));
+        var storage = new S3VideoStorage(s3, mock(S3Presigner.class), "fiapx-videos");
+
+        assertThatThrownBy(() -> storage.storeRaw(UUID.randomUUID(), UUID.randomUUID(), "mp4",
+                new ByteArrayInputStream(new byte[]{1}), 1L))
+                .isInstanceOfSatisfying(StorageException.class,
+                        ex -> assertThat(ex.errorCode()).isEqualTo(ErrorCode.STORAGE_FAILURE))
+                .hasCauseInstanceOf(SdkClientException.class);
+    }
+}
+```
+
 - [ ] **Step 5: Rodar e confirmar que passa**
 
-Run: `./mvnw test -Dtest='*S3VideoStorageIT'`
+Run: `./mvnw test -Dtest='*S3VideoStorage*'`
 Expected: PASS — o LocalStack sobe, o objeto é gravado na chave esperada e a URL assinada baixa o conteúdo.
 
 - [ ] **Step 6: Commit**
