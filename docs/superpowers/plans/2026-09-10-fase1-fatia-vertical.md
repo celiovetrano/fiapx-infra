@@ -6063,7 +6063,8 @@ fiapx:
   ffmpeg:
     binary: ${FFMPEG_BINARY:ffmpeg}
     timeout-seconds: ${FFMPEG_TIMEOUT_SECONDS:600}
-  work-dir: ${WORK_DIR:/tmp/fiapx}
+  # java.io.tmpdir: /tmp no container Linux, a pasta temporária do usuário no Windows.
+  work-dir: ${WORK_DIR:${java.io.tmpdir}/fiapx}
 
 spring.cloud.aws:
   region:
