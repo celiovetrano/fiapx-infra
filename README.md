@@ -22,6 +22,14 @@ o Terraform e os charts Helm.
 
 Sem nenhuma credencial AWS: o LocalStack provê S3, SQS e SNS.
 
+## Testes de ponta a ponta
+
+    docker compose up --build -d
+    cd e2e && ./mvnw test
+
+Cobrem: fluxo completo do upload ao ZIP, dois vídeos em paralelo, isolamento
+entre usuários, exigência de token e recusa de formato inválido.
+
 ## Documentação
 
 - Arquitetura: `docs/superpowers/specs/2026-09-10-fiapx-microservices-design.md`
