@@ -3218,6 +3218,7 @@ import br.com.fiapx.video.application.port.out.VideoRepository;
 import br.com.fiapx.video.domain.Video;
 import br.com.fiapx.video.domain.VideoFile;
 import br.com.fiapx.video.domain.VideoStatus;
+import br.com.fiapx.video.support.LocalStackTestContainer;
 import br.com.fiapx.video.support.PostgresTestContainer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -3230,7 +3231,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-@Import(PostgresTestContainer.class)
+// O LocalStack é necessário mesmo sem usar AWS aqui: a partir da Task 14 o @SqsListener
+// sobe com o contexto e, sem endpoint local, tentaria resolver a fila na AWS real.
+@Import({LocalStackTestContainer.class, PostgresTestContainer.class})
 @TestPropertySource(properties = "spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://localhost:0/jwks")
 class JpaVideoRepositoryIT {
 
