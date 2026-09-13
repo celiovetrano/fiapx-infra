@@ -6760,8 +6760,9 @@ class ProcessVideoUseCaseTest {
 
     @Test
     void falhaDoFfmpegViraVideoFailedComOMesmoErrorCode() {
-        when(extractor.extract(any(), any()))
-                .thenThrow(new ProcessingException(ErrorCode.FFMPEG_FAILURE, "codec invalido"));
+        // doThrow, e não when(...): when() chamaria o thenAnswer do setUp com argumentos nulos.
+        doThrow(new ProcessingException(ErrorCode.FFMPEG_FAILURE, "codec invalido"))
+                .when(extractor).extract(any(), any());
 
         useCase.execute(payload(), 2);
 
@@ -6782,8 +6783,8 @@ class ProcessVideoUseCaseTest {
 
     @Test
     void removeODiretorioTemporarioMesmoEmCasoDeFalha() throws Exception {
-        when(extractor.extract(any(), any()))
-                .thenThrow(new ProcessingException(ErrorCode.TIMEOUT, "estourou"));
+        doThrow(new ProcessingException(ErrorCode.TIMEOUT, "estourou"))
+                .when(extractor).extract(any(), any());
 
         useCase.execute(payload(), 1);
 
@@ -6967,6 +6968,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.sns.SnsClient;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 
@@ -7021,7 +7023,11 @@ class VideoProcessingListenerIT {
         sqsTemplate.send(to -> to.queue(fila).payload(json));
 
         String zipKey = "processed/" + userId + "/" + videoId + ".zip";
-        await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
+        // untilAsserted só repete em AssertionError: sem ignorar o 404 do S3, a primeira
+        // leitura antes do ZIP existir derrubaria o teste em vez de esperar.
+        await().atMost(Duration.ofSeconds(60))
+                .ignoreException(NoSuchKeyException.class)
+                .untilAsserted(() ->
                 assertThat(s3.getObjectAsBytes(b -> b.bucket(bucket).key(zipKey)).asByteArray())
                         .isNotEmpty());
     }
@@ -7045,6 +7051,7 @@ import br.com.fiapx.worker.application.usecase.ProcessVideoUseCase;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.awspring.cloud.sqs.annotation.SqsListener;
+import io.awspring.cloud.sqs.listener.SqsHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.messaging.handler.annotation.Header;
@@ -7063,8 +7070,11 @@ class VideoProcessingListener {
     }
 
     @SqsListener("${fiapx.sqs.processing-queue}")
+    // O Spring Cloud AWS publica os atributos de sistema com prefixo: o header é
+    // "Sqs_Msa_ApproximateReceiveCount". Com "ApproximateReceiveCount" a tentativa seria sempre 1.
     void onMessage(String body,
-                   @Header(name = "ApproximateReceiveCount", required = false) String receiveCount) {
+                   @Header(name = SqsHeaders.MessageSystemAttributes.SQS_APPROXIMATE_RECEIVE_COUNT,
+                           required = false) String receiveCount) {
         try {
             EventEnvelope<VideoUploadedPayload> envelope =
                     mapper.readValue(body, new TypeReference<>() {});
