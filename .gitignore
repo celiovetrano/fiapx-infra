@@ -1,5 +1,9 @@
 .idea/
 __MACOSX/
+
+# Enunciado do desafio (material da FIAP): fica só local, não é redistribuído
+Docs/*.pdf
+docs/*.pdf
 .DS_Store
 *.zip
 
