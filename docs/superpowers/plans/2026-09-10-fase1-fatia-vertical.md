@@ -638,7 +638,8 @@ Domínio puro: sem Spring, sem JPA. É aqui que a regra de senha e de e-mail viv
 
 ```bash
 cd services && mkdir -p fiapx-auth-service && cd fiapx-auth-service && git init
-cp -r ../fiapx-contracts/mvnw ../fiapx-contracts/mvnw.cmd ../fiapx-contracts/.mvn .
+cp -r ../fiapx-contracts/mvnw ../fiapx-contracts/mvnw.cmd ../fiapx-contracts/.mvn \
+      ../fiapx-contracts/.gitattributes ../fiapx-contracts/.gitignore .
 ```
 
 `pom.xml`:
@@ -2430,7 +2431,8 @@ O coração do sistema: o value object que valida o arquivo e a máquina de esta
 
 ```bash
 cd services && mkdir -p fiapx-video-api && cd fiapx-video-api && git init
-cp -r ../fiapx-contracts/mvnw ../fiapx-contracts/mvnw.cmd ../fiapx-contracts/.mvn .
+cp -r ../fiapx-contracts/mvnw ../fiapx-contracts/mvnw.cmd ../fiapx-contracts/.mvn \
+      ../fiapx-contracts/.gitattributes ../fiapx-contracts/.gitignore .
 ```
 
 `pom.xml`:
@@ -5539,7 +5541,8 @@ estagio de build, evitando depender de um registry na fase 1."
 
 ```bash
 cd services && mkdir -p fiapx-processing-worker && cd fiapx-processing-worker && git init
-cp -r ../fiapx-contracts/mvnw ../fiapx-contracts/mvnw.cmd ../fiapx-contracts/.mvn .
+cp -r ../fiapx-contracts/mvnw ../fiapx-contracts/mvnw.cmd ../fiapx-contracts/.mvn \
+      ../fiapx-contracts/.gitattributes ../fiapx-contracts/.gitignore .
 ```
 
 `pom.xml`:
