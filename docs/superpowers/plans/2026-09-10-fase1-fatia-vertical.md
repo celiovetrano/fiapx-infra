@@ -4324,6 +4324,7 @@ import br.com.fiapx.video.application.usecase.SubmitVideoUseCase;
 import br.com.fiapx.video.domain.Video;
 import br.com.fiapx.video.domain.VideoFile;
 import br.com.fiapx.video.domain.exception.InvalidVideoFileException;
+import br.com.fiapx.video.infrastructure.config.SecurityConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
