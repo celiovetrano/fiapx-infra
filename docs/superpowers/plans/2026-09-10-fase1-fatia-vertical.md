@@ -2880,6 +2880,10 @@ fiapx:
   s3:
     bucket: ${S3_BUCKET:fiapx-videos}
     presign-ttl-minutes: 15
+    # Host usado SÓ na URL assinada devolvida ao navegador. No Compose, o serviço
+    # fala com "localstack:4566", mas o navegador do usuário só alcança
+    # "localhost:4566". Vazio = mesmo endpoint do SDK (AWS real).
+    public-endpoint: ${S3_PUBLIC_ENDPOINT:}
   sqs:
     processing-queue: ${SQS_PROCESSING_QUEUE:video-processing-queue}
     status-queue: ${SQS_STATUS_QUEUE:video-status-queue}
@@ -3517,10 +3521,13 @@ public class AwsConfig {
     /**
      * O S3Client vem do spring-cloud-aws. O presigner precisa de um bean próprio,
      * e no LocalStack exige path-style para que a URL assinada seja acessível.
+     * A URL vai para o navegador, então usa o endpoint público quando ele existe
+     * (no Compose, "localhost:4566" em vez de "localstack:4566").
      */
     @Bean
     S3Presigner s3Presigner(@Value("${spring.cloud.aws.region.static}") String region,
                             @Value("${spring.cloud.aws.endpoint:}") String endpoint,
+                            @Value("${fiapx.s3.public-endpoint:}") String publicEndpoint,
                             @Value("${spring.cloud.aws.credentials.access-key}") String accessKey,
                             @Value("${spring.cloud.aws.credentials.secret-key}") String secretKey) {
         S3Presigner.Builder builder = S3Presigner.builder()
@@ -3528,8 +3535,10 @@ public class AwsConfig {
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(accessKey, secretKey)));
 
-        if (endpoint != null && !endpoint.isBlank()) {
-            builder.endpointOverride(URI.create(endpoint))
+        String presignEndpoint = (publicEndpoint != null && !publicEndpoint.isBlank())
+                ? publicEndpoint : endpoint;
+        if (presignEndpoint != null && !presignEndpoint.isBlank()) {
+            builder.endpointOverride(URI.create(presignEndpoint))
                    .serviceConfiguration(s -> s.pathStyleAccessEnabled(true));
         }
         return builder.build();
@@ -6887,6 +6896,7 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       S3_BUCKET: fiapx-videos
+      S3_PUBLIC_ENDPOINT: http://localhost:4566   # host da URL assinada, alcançável pelo navegador
       SQS_PROCESSING_QUEUE: video-processing-queue
       SQS_STATUS_QUEUE: video-status-queue
     ports: ["8082:8082"]

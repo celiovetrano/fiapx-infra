@@ -3,7 +3,7 @@
 
 **Data:** 2026-09-10
 **Contexto:** Hackathon POSTECH SOAT — Fase 5
-**Status:** Aprovado para implementação
+**Status:** Aprovado para implementação — revisado em 2026-09-12 (prazo de 7 dias; seções 12, 14, 15, 17, 18 e 19)
 
 ---
 
@@ -370,6 +370,7 @@ retorna `404` (não `403`), para não vazar existência.
 | Web | `@WebMvcTest` + Spring Security Test | Contratos REST, autorização, formato de erro |
 | ffmpeg | Fixture de vídeo de 2 s no repositório | Contagem de frames e conteúdo do ZIP |
 | E2E | Compose + REST Assured | login → upload → polling até `COMPLETED` → download |
+| Carga (RF-02) | **k6** (`fiapx-infra/load/burst.js`) | 100 submissões em rajada com 10 usuários virtuais; em seguida, polling até nenhuma ficar em `PENDING`/`PROCESSING`. Passa se `COMPLETED + FAILED = 100` e nenhum upload receber `5xx`. O relatório entra no vídeo e no README |
 
 **Gate:** JaCoCo com mínimo de **80% de cobertura de linha** sobre `domain` e
 `application`; o build falha abaixo disso. Pacotes de configuração e DTOs são excluídos
@@ -416,6 +417,20 @@ Módulos em `fiapx-infra/terraform/`:
 O `README` do repositório documenta `terraform destroy` de forma destacada, para evitar
 custo residual após a apresentação.
 
+**Dimensionamento para o hackathon (custo e tempo):**
+
+- EKS não tem free tier: o control plane custa cerca de US$ 0,10/h. O cluster só é criado
+  no D5 e destruído no D7, cerca de 72 horas no total.
+- Um único NAT gateway, em uma AZ, em vez de um por AZ. As subnets privadas continuam.
+- Node group gerenciado com 2 × `t3.medium` on-demand. Spot foi descartado para não haver
+  interrupção durante a gravação.
+- RDS `db.t3.micro` single-AZ, sem réplica.
+- Estimativa total da janela: da ordem de US$ 20–30. Um alarme do AWS Budgets em US$ 30 é
+  criado no D1.
+- Estado do Terraform em backend S3 com lock no DynamoDB, criado por um script de
+  bootstrap (`terraform/bootstrap/`). Assim o `apply` via GitHub Actions e o local
+  compartilham o mesmo estado.
+
 ---
 
 ## 15. Ambiente local (plano B da gravação)
@@ -425,9 +440,19 @@ custo residual após a apresentação.
 - `postgres` com os três bancos criados por script de init;
 - `localstack` provendo S3, SQS, SNS e SES (a inicialização cria filas, tópico e bucket);
 - os cinco serviços, cada um com perfil `local`;
+- `mailpit` (SMTP na porta 1025, caixa de entrada web em `http://localhost:8025`);
 - `prometheus` e `grafana` com o dashboard provisionado.
 
-O `notification-service` no perfil `local` usa o adapter de log em vez do SES real. A
+O `notification-service` tem um port `EmailSender` com dois adapters: **SES** (perfil
+`aws`) e **SMTP** (perfil `local`, apontando para o Mailpit). Assim a demonstração local
+mostra um e-mail de falha de verdade na caixa de entrada do Mailpit, e não só uma linha
+de log.
+
+**URL assinada no ambiente local:** dentro da rede do Compose os serviços acessam o
+LocalStack por `http://localstack:4566`, um host que o navegador do usuário não resolve.
+O `video-api` usa a propriedade `fiapx.s3.public-endpoint` (`S3_PUBLIC_ENDPOINT=http://localhost:4566`)
+apenas para gerar a presigned URL. Na AWS ela fica vazia e o presigner usa o endpoint
+padrão do S3. A
 suíte E2E roda contra esse ambiente, o que o mantém sempre funcional — e garante uma
 demonstração gravável mesmo se o cluster EKS estiver indisponível.
 
@@ -449,18 +474,28 @@ demonstração gravável mesmo se o cluster EKS estiver indisponível.
 
 ## 17. Sequência de execução
 
-**Semana 1 — fatia vertical funcionando de ponta a ponta**
-`fiapx-contracts` → `auth-service` → `video-api` → `processing-worker`, rodando em
-Docker Compose com LocalStack, já com testes. Ao final da semana existe uma demonstração
-gravável: login, upload, processamento assíncrono, download do ZIP.
+> **Revisão 2026-09-12:** o prazo real é de **7 dias** (12/09 a 18/09/2026), com uma
+> pessoa implementando. As três "semanas" originais foram comprimidas em sete dias, com
+> checkpoints de ir/não ir. As decisões de arquitetura (AWS EKS + Terraform, sete
+> repositórios) foram mantidas.
 
-**Semana 2 — completar o sistema e subir para a AWS**
-Gateway com UI estática, `notification-service` com SES, Terraform e EKS, os pipelines de
-CI/CD, Actuator/Prometheus/Grafana.
+| Dia | Data | Entrega | Checkpoint ao final do dia |
+|---|---|---|---|
+| D1 | 12/09 | Plano 1, tarefas 1–7: workspace, `fiapx-contracts`, `auth-service` completo. Repositórios criados no GitHub. **Paralelo (usuário):** conta AWS com alarme de orçamento, instalar `aws` CLI e `terraform`, verificar o e-mail no SES | `auth-service` com `./gradlew build` verde |
+| D2 | 13/09 | Plano 1, tarefas 8–15: `video-api` completo | Upload `202` e listagem via testes de integração |
+| D3 | 14/09 | Plano 1, tarefas 16–22: `processing-worker`, Compose e E2E. Escrever o Plano 2 | **Demonstração local gravável** (critérios da Fase 1). Gravar um take de segurança |
+| D4 | 15/09 | Plano 2, parte 1: `notification-service` (SES e Mailpit local), gateway com UI estática, workflow de CI reutilizável aplicado aos sete repositórios | RF-05 comprovado no Compose; CI verde em todos os repositórios |
+| D5 | 16/09 | Plano 2, parte 2: Terraform (network, eks, rds, storage, messaging, ecr, iam, email) e chart Helm genérico | **Ir/não ir do EKS:** se às 20h o cluster não estiver servindo os serviços, a gravação usa o Compose e o EKS vira seção de "próximos passos" |
+| D6 | 17/09 | Plano 3: CD por OIDC até o EKS, kube-prometheus-stack com o dashboard, KEDA, teste de carga k6 (RF-02) | Critérios 1–7 da seção 20 verificados no EKS |
+| D7 | 18/09 | Documentação (arquitetura C4, ADRs, READMEs), roteiro, gravação e `terraform destroy` | Vídeo ≤ 10 min publicado; links entregues |
 
-**Semana 3 — endurecer, documentar e apresentar**
-KEDA e HPA, DLQ com alarme, teste de carga comprovando RF-02, diagramas C4, ADRs, README
-de cada repositório, roteiro e gravação.
+**Regras de prazo:**
+
+- O RF-05 (notificação) é requisito essencial do enunciado: é a **primeira** tarefa do
+  Plano 2 e não entra na lista de corte antes do item 6.
+- Atraso de meio dia em qualquer checkpoint aciona o próximo item da lista de corte
+  (seção 19), sem negociação.
+- O cluster EKS só é criado no D5 e é destruído no D7, logo após a gravação.
 
 ---
 
@@ -473,16 +508,28 @@ de cada repositório, roteiro e gravação.
 | Sete repositórios mantidos por 1–2 pessoas | Médio | `fiapx-contracts` versionado; mudanças de evento sempre aditivas; workflows de CI idênticos entre repos |
 | Imagem do worker com ffmpeg (~300 MB) | Baixo | Multi-stage sobre `eclipse-temurin:21-jre-alpine` + `apk add ffmpeg` |
 | Vídeos grandes estourando memória ou disco do pod | Médio | Limite de 200 MB no upload; streaming para disco (nunca para memória); `emptyDir` com limite; timeout de 10 min |
-| Prazo apertando | Médio | Lista de corte da seção 19 |
+| Prazo de 7 dias com uma pessoa e sete repositórios | **Alto** | Cronograma D1–D7 com checkpoints (seção 17); lista de corte acionada por atraso de meio dia (seção 19); workflow de CI reutilizável e chart Helm genérico para não multiplicar trabalho por sete |
+| Ferramentas AWS ausentes na máquina (`aws` CLI, `terraform`) e conta sem SES verificado | Médio | Instalação, alarme de orçamento e verificação do e-mail no SES feitos no D1, em paralelo à codificação |
+| Download do ZIP quebrado no ambiente local (host da URL assinada) | Médio | `fiapx.s3.public-endpoint` (seção 15) e o teste E2E baixando o arquivo pela URL devolvida |
 
 ## 19. Lista de corte (nesta ordem, se o prazo apertar)
 
+Revisada em 2026-09-12 para o prazo de 7 dias. Cada item é acionado por um atraso de meio
+dia num checkpoint da seção 17.
+
 1. **Redis** (cache de listagem e rate limit) — opcional desde o início.
-2. **Grafana** — cai para CloudWatch Container Insights.
-3. **KEDA** — cai para HPA por CPU.
-4. **UI estática** — cai para demonstração via Swagger UI.
-5. **`notification-service` como serviço próprio** — cai para chamada direta ao SES pelo
-   worker. *Este corte muda a decomposição; só usar em último caso.*
+2. **UI estática** — cai para demonstração via Swagger UI.
+3. **`fiapx-gateway`** — cai para um Ingress (AWS Load Balancer Controller) roteando por
+   caminho direto aos serviços. A segurança não muda, porque cada serviço já valida o JWT.
+   Perde-se o rate limit do login, e isso é registrado no ADR-02.
+4. **KEDA** — cai para HPA por CPU.
+5. **Prometheus/Grafana no cluster** — cai para CloudWatch Container Insights. O Compose
+   mantém Prometheus e Grafana para a demonstração do dashboard.
+6. **EKS na gravação** — decisão do checkpoint do D5. A demonstração é gravada no Compose.
+   O Terraform continua entregue como "script dos demais recursos", com `terraform plan`
+   verde no CI, e o CD para no push da imagem no ECR.
+7. **`notification-service` como serviço próprio** — cai para chamada direta ao SES pelo
+   worker. *Este corte muda a decomposição; só usar em último caso.* O RF-05 nunca é cortado.
 
 ---
 
