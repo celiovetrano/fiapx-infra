@@ -1,0 +1,31 @@
+# Formatação e validação do Terraform, sem credenciais AWS. O plan/apply com OIDC
+# entra no Plano 3, junto com o CD.
+name: terraform
+
+on:
+  push:
+    branches: [main]
+    paths: ["terraform/**"]
+  pull_request:
+    paths: ["terraform/**"]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    container: hashicorp/terraform:1.9
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: terraform fmt
+        run: terraform -chdir=terraform fmt -check -recursive
+
+      - name: terraform validate (raiz)
+        run: |
+          terraform -chdir=terraform init -backend=false -input=false
+          terraform -chdir=terraform validate
+
+      - name: terraform validate (bootstrap)
+        run: |
+          terraform -chdir=terraform/bootstrap init -backend=false -input=false
+          terraform -chdir=terraform/bootstrap validate

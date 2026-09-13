@@ -19,4 +19,7 @@ target/
 .terraform/
 *.tfstate
 *.tfstate.*
+terraform/backend.hcl
+terraform/terraform.tfvars
+*.tfplan
 .env

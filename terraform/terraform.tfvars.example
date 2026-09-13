@@ -1,0 +1,4 @@
+# Copie para terraform.tfvars (ignorado pelo git) e ajuste.
+notification_email = "seu-email@exemplo.com"
+# eks_version        = "1.35"
+# node_instance_type = "t3.medium"
