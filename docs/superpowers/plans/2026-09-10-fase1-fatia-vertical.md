@@ -7159,9 +7159,11 @@ Requer Docker (LocalStack) e `ffmpeg` no PATH.
 | `S3_BUCKET` | `fiapx-videos` | Bucket |
 | `SQS_PROCESSING_QUEUE` | `video-processing-queue` | Fila de entrada |
 | `SNS_EVENTS_TOPIC` | `video-events` | Tópico de saída |
+| `FFMPEG_BINARY` | `ffmpeg` | Caminho do executável do ffmpeg |
 | `FFMPEG_TIMEOUT_SECONDS` | `600` | Timeout do processo |
-| `WORK_DIR` | `/tmp/fiapx` | Diretório temporário |
+| `WORK_DIR` | `${java.io.tmpdir}/fiapx` | Diretório temporário (`/tmp/fiapx` no container) |
 | `AWS_ENDPOINT` | vazio | Aponte para o LocalStack no ambiente local |
+| `S3_PATH_STYLE` | `false` | `true` no LocalStack, onde o host virtual do bucket não resolve |
 ```
 
 - [ ] **Step 8: Commit**
