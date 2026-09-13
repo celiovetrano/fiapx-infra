@@ -1,7 +1,19 @@
 .idea/
 __MACOSX/
 .DS_Store
-uploads/
-outputs/
-temp/
 *.zip
+
+# Repositórios de serviço têm seu próprio git
+/services/*
+!/services/.gitkeep
+
+# Gradle / Java
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Terraform (fase 2)
+.terraform/
+*.tfstate
+*.tfstate.*
+.env
