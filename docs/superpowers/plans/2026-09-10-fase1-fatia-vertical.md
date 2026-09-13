@@ -6,7 +6,7 @@
 
 **Architecture:** Três serviços Spring Boot em Clean Architecture (`auth-service`, `video-api`, `processing-worker`) mais uma biblioteca de contratos. O `video-api` recebe o upload, grava no S3, persiste `PENDING` e publica na fila SQS respondendo `202 Accepted`; o worker consome a fila, executa ffmpeg, compacta e publica o resultado no SNS; o `video-api` consome o evento de resultado e atualiza o status. Nenhum serviço chama outro por HTTP no caminho de processamento.
 
-**Tech Stack:** Java 21 · Spring Boot 3.3.5 · Maven 3.9 (wrapper `mvnw`) · Spring Cloud AWS 3.2.1 (SQS/SNS/S3) · PostgreSQL 16 + Flyway · Spring Security OAuth2 Resource Server + Nimbus JOSE · JUnit 5 + AssertJ + Mockito · Testcontainers 1.20.3 (PostgreSQL + LocalStack) · JaCoCo 0.8.12 · Docker Compose.
+**Tech Stack:** Java 21 · Spring Boot 3.3.5 · Maven 3.9 (wrapper `mvnw`) · Spring Cloud AWS 3.2.1 (SQS/SNS/S3) · PostgreSQL 16 + Flyway · Spring Security OAuth2 Resource Server + Nimbus JOSE · JUnit 5 + AssertJ + Mockito · Testcontainers 1.21.4 (PostgreSQL + LocalStack) · JaCoCo 0.8.12 · Docker Compose.
 
 **Spec:** `docs/superpowers/specs/2026-09-10-fiapx-microservices-design.md`
 
@@ -663,7 +663,8 @@ cp -r ../fiapx-contracts/mvnw ../fiapx-contracts/mvnw.cmd ../fiapx-contracts/.mv
 
     <properties>
         <java.version>21</java.version>
-        <testcontainers.version>1.20.3</testcontainers.version>
+        <!-- 1.21.4+: versões anteriores usam uma API do Docker recusada pelo Engine 29 -->
+        <testcontainers.version>1.21.4</testcontainers.version>
     </properties>
 
     <dependencies>
@@ -2456,7 +2457,8 @@ cp -r ../fiapx-contracts/mvnw ../fiapx-contracts/mvnw.cmd ../fiapx-contracts/.mv
 
     <properties>
         <java.version>21</java.version>
-        <testcontainers.version>1.20.3</testcontainers.version>
+        <!-- 1.21.4+: versões anteriores usam uma API do Docker recusada pelo Engine 29 -->
+        <testcontainers.version>1.21.4</testcontainers.version>
         <spring-cloud-aws.version>3.2.1</spring-cloud-aws.version>
     </properties>
 
@@ -5566,7 +5568,8 @@ cp -r ../fiapx-contracts/mvnw ../fiapx-contracts/mvnw.cmd ../fiapx-contracts/.mv
 
     <properties>
         <java.version>21</java.version>
-        <testcontainers.version>1.20.3</testcontainers.version>
+        <!-- 1.21.4+: versões anteriores usam uma API do Docker recusada pelo Engine 29 -->
+        <testcontainers.version>1.21.4</testcontainers.version>
         <spring-cloud-aws.version>3.2.1</spring-cloud-aws.version>
     </properties>
 
