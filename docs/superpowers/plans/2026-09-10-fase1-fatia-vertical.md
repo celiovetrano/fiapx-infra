@@ -3186,6 +3186,10 @@ spring.cloud.aws:
   region:
     static: ${AWS_REGION:us-east-1}
   endpoint: ${AWS_ENDPOINT:}
+  s3:
+    # true no LocalStack: sem isso o SDK monta "fiapx-videos.localstack:4566", host
+    # que não resolve. Na AWS real fica false (virtual-hosted style).
+    path-style-access-enabled: ${S3_PATH_STYLE:false}
   credentials:
     access-key: ${AWS_ACCESS_KEY_ID:test}
     secret-key: ${AWS_SECRET_ACCESS_KEY:test}
@@ -3666,8 +3670,8 @@ dando rastro de auditoria sem poluir o agregado de dominio."
 package br.com.fiapx.video.support;
 
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.springframework.test.context.DynamicPropertyRegistry;
 import org.testcontainers.containers.localstack.LocalStackContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -3675,14 +3679,24 @@ import static org.testcontainers.containers.localstack.LocalStackContainer.Servi
 import static org.testcontainers.containers.localstack.LocalStackContainer.Service.SNS;
 import static org.testcontainers.containers.localstack.LocalStackContainer.Service.SQS;
 
+/**
+ * Publica o endpoint do LocalStack como propriedades spring.cloud.aws.*, e não via
+ * {@code @ServiceConnection}: o Boot não tem ConnectionDetails para o LocalStack, e o
+ * presigner do AwsConfig lê essas mesmas propriedades.
+ */
 @TestConfiguration(proxyBeanMethods = false)
 public class LocalStackTestContainer {
 
     @Bean
-    @ServiceConnection
-    LocalStackContainer localStack() {
-        return new LocalStackContainer(DockerImageName.parse("localstack/localstack:3.8"))
+    LocalStackContainer localStack(DynamicPropertyRegistry registry) {
+        LocalStackContainer container = new LocalStackContainer(DockerImageName.parse("localstack/localstack:3.8"))
                 .withServices(S3, SQS, SNS);
+        registry.add("spring.cloud.aws.endpoint", () -> container.getEndpoint().toString());
+        registry.add("spring.cloud.aws.region.static", container::getRegion);
+        registry.add("spring.cloud.aws.credentials.access-key", container::getAccessKey);
+        registry.add("spring.cloud.aws.credentials.secret-key", container::getSecretKey);
+        registry.add("spring.cloud.aws.s3.path-style-access-enabled", () -> "true");
+        return container;
     }
 }
 ```
@@ -6002,6 +6016,10 @@ spring.cloud.aws:
   region:
     static: ${AWS_REGION:us-east-1}
   endpoint: ${AWS_ENDPOINT:}
+  s3:
+    # true no LocalStack: sem isso o SDK monta "fiapx-videos.localstack:4566", host
+    # que não resolve. Na AWS real fica false (virtual-hosted style).
+    path-style-access-enabled: ${S3_PATH_STYLE:false}
   credentials:
     access-key: ${AWS_ACCESS_KEY_ID:test}
     secret-key: ${AWS_SECRET_ACCESS_KEY:test}
@@ -7303,6 +7321,7 @@ services:
       AWS_SECRET_ACCESS_KEY: test
       S3_BUCKET: fiapx-videos
       S3_PUBLIC_ENDPOINT: http://localhost:4566   # host da URL assinada, alcançável pelo navegador
+      S3_PATH_STYLE: "true"
       SQS_PROCESSING_QUEUE: video-processing-queue
       SQS_STATUS_QUEUE: video-status-queue
     ports: ["8082:8082"]
@@ -7320,6 +7339,7 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       S3_BUCKET: fiapx-videos
+      S3_PATH_STYLE: "true"
       SQS_PROCESSING_QUEUE: video-processing-queue
       SNS_EVENTS_TOPIC: video-events
       WORK_DIR: /tmp/fiapx
