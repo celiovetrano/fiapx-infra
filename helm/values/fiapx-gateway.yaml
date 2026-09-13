@@ -1,0 +1,10 @@
+replicaCount: 2
+containerPort: 8080
+service:
+  # Único serviço exposto: o EKS cria um load balancer da AWS para ele.
+  type: LoadBalancer
+  port: 80
+env:
+  AUTH_SERVICE_URL: http://fiapx-auth-service:8081
+  VIDEO_API_URL: http://fiapx-video-api:8082
+  JWKS_URI: http://fiapx-auth-service:8081/.well-known/jwks.json

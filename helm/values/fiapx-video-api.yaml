@@ -1,0 +1,15 @@
+replicaCount: 2
+containerPort: 8082
+service:
+  port: 8082
+env:
+  DB_USER: fiapx
+  JWKS_URI: http://fiapx-auth-service:8081/.well-known/jwks.json
+  AWS_REGION: us-east-1
+  SQS_PROCESSING_QUEUE: video-processing-queue
+  SQS_STATUS_QUEUE: video-status-queue
+  # DB_URL e S3_BUCKET são injetados pelo deploy-eks.sh.
+secretEnv:
+  - name: DB_PASSWORD
+    secretName: fiapx-db
+    key: password

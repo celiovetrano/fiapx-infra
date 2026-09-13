@@ -1,0 +1,20 @@
+replicaCount: 2
+containerPort: 8083
+service:
+  port: 8083
+env:
+  AWS_REGION: us-east-1
+  SQS_PROCESSING_QUEUE: video-processing-queue
+  SNS_EVENTS_TOPIC: video-events
+  WORK_DIR: /tmp/fiapx
+  # S3_BUCKET é injetado pelo deploy-eks.sh.
+# Termina o vídeo em curso antes de sair (ffmpeg tem timeout de 600 s).
+terminationGracePeriodSeconds: 900
+resources:
+  requests:
+    cpu: 500m
+    memory: 768Mi
+  limits:
+    memory: 1Gi
+workDir:
+  enabled: true

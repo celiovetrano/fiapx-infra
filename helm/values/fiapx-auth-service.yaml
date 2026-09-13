@@ -1,0 +1,15 @@
+replicaCount: 2
+containerPort: 8081
+service:
+  port: 8081
+env:
+  DB_USER: fiapx
+  # DB_URL é injetado pelo deploy-eks.sh (host do RDS vem do terraform output).
+secretEnv:
+  - name: DB_PASSWORD
+    secretName: fiapx-db
+    key: password
+  # Mesma chave nas duas réplicas: sem ela cada pod geraria uma chave efêmera diferente.
+  - name: JWT_PRIVATE_KEY_PEM
+    secretName: fiapx-jwt
+    key: private-key

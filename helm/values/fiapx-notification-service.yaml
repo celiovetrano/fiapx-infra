@@ -1,0 +1,14 @@
+replicaCount: 1
+containerPort: 8084
+service:
+  port: 8084
+env:
+  DB_USER: fiapx
+  AWS_REGION: us-east-1
+  SQS_NOTIFICATION_QUEUE: notification-queue
+  NOTIFICATION_PROVIDER: ses
+  # DB_URL e NOTIFICATION_FROM são injetados pelo deploy-eks.sh.
+secretEnv:
+  - name: DB_PASSWORD
+    secretName: fiapx-db
+    key: password
