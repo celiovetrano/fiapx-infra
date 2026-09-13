@@ -90,5 +90,33 @@ services:
     deploy:
       replicas: 2
 
+  mailpit:
+    image: axllent/mailpit:v1.31.1
+    # 8025 = caixa de entrada web e API; 1025 = SMTP
+    ports: ["8025:8025", "1025:1025"]
+
+  notification-service:
+    build:
+      context: ./services
+      dockerfile: fiapx-notification-service/Dockerfile
+    image: fiapx/notification-service:local
+    depends_on:
+      postgres: { condition: service_healthy }
+      localstack: { condition: service_healthy }
+      mailpit: { condition: service_started }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/notification_db
+      DB_USER: fiapx
+      DB_PASSWORD: fiapx
+      AWS_ENDPOINT: http://localstack:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      SQS_NOTIFICATION_QUEUE: notification-queue
+      NOTIFICATION_PROVIDER: smtp
+      NOTIFICATION_FROM: nao-responda@fiapx.local
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+
 volumes:
   pgdata:

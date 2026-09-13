@@ -2,6 +2,7 @@ package br.com.fiapx.e2e;
 
 import io.restassured.RestAssured;
 import io.restassured.http.ContentType;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -17,17 +18,20 @@ import java.util.zip.ZipInputStream;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 
 class VideoProcessingE2ETest {
 
     private static String authUrl;
     private static String videoUrl;
+    private static String mailpitUrl;
     private static File fixture;
 
     @BeforeAll
     static void setUp() throws Exception {
         authUrl = System.getProperty("auth.url", "http://localhost:8081");
         videoUrl = System.getProperty("video.url", "http://localhost:8082");
+        mailpitUrl = System.getProperty("mailpit.url", "http://localhost:8025");
         RestAssured.enableLoggingOfRequestAndResponseIfValidationFails();
 
         Path destino = Files.createTempFile("sample", ".mp4");
@@ -146,5 +150,35 @@ class VideoProcessingE2ETest {
                 .multiPart("video", pdf)
                 .post("/api/v1/videos")
                 .then().statusCode(400);
+    }
+
+    @Test
+    void falhaNoProcessamentoEnviaEmailAoUsuario() throws Exception {
+        Assumptions.assumeFalse(mailpitUrl.isBlank(),
+                "Sem Mailpit (ambiente AWS): o e-mail é conferido na caixa de entrada real");
+        String email = "e2e-falha-" + UUID.randomUUID() + "@fiap.com.br";
+        String token = registrarELogar(email);
+        File quebrado = Files.writeString(Files.createTempFile("quebrado", ".mp4"),
+                "isto nao e um video").toFile();
+
+        String videoId = given().baseUri(videoUrl).header("Authorization", "Bearer " + token)
+                .multiPart("video", quebrado)
+                .post("/api/v1/videos")
+                .then().statusCode(202)
+                .extract().path("id");
+
+        await().atMost(Duration.ofMinutes(1)).pollInterval(Duration.ofSeconds(2))
+                .untilAsserted(() ->
+                        given().baseUri(videoUrl).header("Authorization", "Bearer " + token)
+                                .get("/api/v1/videos/" + videoId)
+                                .then().statusCode(200)
+                                .body("status", org.hamcrest.Matchers.equalTo("FAILED")));
+
+        await().atMost(Duration.ofMinutes(1)).pollInterval(Duration.ofSeconds(2))
+                .untilAsserted(() ->
+                        given().baseUri(mailpitUrl).queryParam("query", "to:" + email)
+                                .get("/api/v1/search")
+                                .then().statusCode(200)
+                                .body("messages.size()", greaterThanOrEqualTo(1)));
     }
 }

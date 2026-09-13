@@ -14,6 +14,8 @@
         <!-- Sobrescreva com -Dauth.url=... e -Dvideo.url=... para apontar para outro ambiente -->
         <auth.url>http://localhost:8081</auth.url>
         <video.url>http://localhost:8082</video.url>
+        <!-- Vazio pula o teste de e-mail (na AWS o e-mail é conferido na caixa real) -->
+        <mailpit.url>http://localhost:8025</mailpit.url>
     </properties>
 
     <dependencyManagement>
@@ -69,6 +71,7 @@
                     <systemPropertyVariables>
                         <auth.url>${auth.url}</auth.url>
                         <video.url>${video.url}</video.url>
+                        <mailpit.url>${mailpit.url}</mailpit.url>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
