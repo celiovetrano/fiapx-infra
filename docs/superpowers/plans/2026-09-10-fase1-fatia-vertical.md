@@ -4166,7 +4166,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
-import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 
 import java.time.Duration;
 import java.util.UUID;
@@ -4184,15 +4184,16 @@ class SqsVideoEventPublisherIT {
     @Autowired
     SqsTemplate sqsTemplate;
 
+    // O spring-cloud-aws autoconfigura só o cliente assíncrono do SQS.
     @Autowired
-    SqsClient sqsClient;
+    SqsAsyncClient sqsClient;
 
     @Value("${fiapx.sqs.processing-queue}")
     String fila;
 
     @BeforeEach
     void criarFila() {
-        sqsClient.createQueue(b -> b.queueName(fila));
+        sqsClient.createQueue(b -> b.queueName(fila)).join();
     }
 
     @Test
@@ -4271,7 +4272,9 @@ class SqsVideoEventPublisher implements VideoEventPublisher {
         var envelope = EventEnvelope.of(EventType.VIDEO_UPLOADED, video.id(), payload);
 
         try {
-            sqsTemplate.send(to -> to.queue(queue).payload(mapper.writeValueAsString(envelope)));
+            // Serializa fora do lambda: a JsonProcessingException é checada e o Consumer não a propaga.
+            String json = mapper.writeValueAsString(envelope);
+            sqsTemplate.send(to -> to.queue(queue).payload(json));
             log.info("Evento VideoUploaded publicado correlationId={}", video.id());
         } catch (Exception ex) {
             throw new IllegalStateException("Falha ao publicar VideoUploaded para " + video.id(), ex);
@@ -5288,7 +5291,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
-import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 
 import java.time.Duration;
 import java.util.UUID;
@@ -5303,14 +5306,14 @@ class VideoStatusListenerIT {
 
     @Autowired VideoRepository repository;
     @Autowired SqsTemplate sqsTemplate;
-    @Autowired SqsClient sqsClient;
+    @Autowired SqsAsyncClient sqsClient; // o spring-cloud-aws só autoconfigura o cliente assíncrono
 
     @Value("${fiapx.sqs.status-queue}")
     String fila;
 
     @BeforeEach
     void criarFila() {
-        sqsClient.createQueue(b -> b.queueName(fila));
+        sqsClient.createQueue(b -> b.queueName(fila)).join();
     }
 
     @Test
@@ -5323,8 +5326,9 @@ class VideoStatusListenerIT {
         var envelope = EventEnvelope.of(EventType.VIDEO_PROCESSED, video.id(),
                 new VideoProcessedPayload(video.id(), video.userId(), "processed/u/v.zip", 42, 1500L));
 
-        sqsTemplate.send(to -> to.queue(fila)
-                .payload(ContractsJson.mapper().writeValueAsString(envelope)));
+        // Serializa fora do lambda: a JsonProcessingException é checada e o Consumer não a propaga.
+        String json = ContractsJson.mapper().writeValueAsString(envelope);
+        sqsTemplate.send(to -> to.queue(fila).payload(json));
 
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
             var atualizado = repository.findById(video.id()).orElseThrow();
@@ -6339,7 +6343,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import software.amazon.awssdk.services.sns.SnsClient;
-import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 
 import java.time.Duration;
 import java.util.Map;
@@ -6353,7 +6357,7 @@ class SnsProcessingEventPublisherIT {
 
     @Autowired ProcessingEventPublisher publisher;
     @Autowired SnsClient sns;
-    @Autowired SqsClient sqs;
+    @Autowired SqsAsyncClient sqs; // o spring-cloud-aws só autoconfigura o cliente assíncrono
     @Autowired SqsTemplate sqsTemplate;
 
     @Value("${fiapx.sns.events-topic}")
@@ -6365,9 +6369,9 @@ class SnsProcessingEventPublisherIT {
     void assinarFilaDeProva() {
         String topicArn = sns.createTopic(b -> b.name(topico)).topicArn();
         filaDeProva = "prova-" + UUID.randomUUID();
-        String queueUrl = sqs.createQueue(b -> b.queueName(filaDeProva)).queueUrl();
+        String queueUrl = sqs.createQueue(b -> b.queueName(filaDeProva)).join().queueUrl();
         String queueArn = sqs.getQueueAttributes(b -> b.queueUrl(queueUrl)
-                .attributeNamesWithStrings("QueueArn")).attributesAsStrings().get("QueueArn");
+                .attributeNamesWithStrings("QueueArn")).join().attributesAsStrings().get("QueueArn");
 
         sns.subscribe(b -> b.topicArn(topicArn).protocol("sqs").endpoint(queueArn)
                 .attributes(Map.of("RawMessageDelivery", "true")));
@@ -6901,7 +6905,7 @@ import org.springframework.context.annotation.Import;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.sns.SnsClient;
-import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 
 import java.io.InputStream;
 import java.time.Duration;
@@ -6915,7 +6919,7 @@ import static org.awaitility.Awaitility.await;
 class VideoProcessingListenerIT {
 
     @Autowired SqsTemplate sqsTemplate;
-    @Autowired SqsClient sqs;
+    @Autowired SqsAsyncClient sqs; // o spring-cloud-aws só autoconfigura o cliente assíncrono
     @Autowired SnsClient sns;
     @Autowired S3Client s3;
 
@@ -6930,7 +6934,7 @@ class VideoProcessingListenerIT {
         } catch (RuntimeException ignorado) {
             // já existe
         }
-        sqs.createQueue(b -> b.queueName(fila));
+        sqs.createQueue(b -> b.queueName(fila)).join();
         sns.createTopic(b -> b.name(topico));
     }
 
@@ -6949,8 +6953,9 @@ class VideoProcessingListenerIT {
                 new VideoUploadedPayload(videoId, userId, "aluno@fiap.com.br",
                         rawKey, "sample-2s.mp4", 15_000L));
 
-        sqsTemplate.send(to -> to.queue(fila)
-                .payload(ContractsJson.mapper().writeValueAsString(envelope)));
+        // Serializa fora do lambda: a JsonProcessingException é checada e o Consumer não a propaga.
+        String json = ContractsJson.mapper().writeValueAsString(envelope);
+        sqsTemplate.send(to -> to.queue(fila).payload(json));
 
         String zipKey = "processed/" + userId + "/" + videoId + ".zip";
         await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
