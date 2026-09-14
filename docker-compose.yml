@@ -118,5 +118,18 @@ services:
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
 
+  gateway:
+    build:
+      context: ./services/fiapx-gateway
+    image: fiapx/gateway:local
+    depends_on:
+      auth-service: { condition: service_healthy }
+      video-api: { condition: service_healthy }
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8081
+      VIDEO_API_URL: http://video-api:8082
+      JWKS_URI: http://auth-service:8081/.well-known/jwks.json
+    ports: ["8080:8080"]
+
 volumes:
   pgdata:
