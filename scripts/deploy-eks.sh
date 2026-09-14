@@ -92,13 +92,16 @@ deploy fiapx-auth-service \
 deploy fiapx-video-api \
   --set env.DB_URL="jdbc:postgresql://$DB_HOST:5432/video_db" \
   --set env.S3_BUCKET="$BUCKET" \
+  --set env.AWS_REGION="$REGION" \
   --set serviceAccount.roleArn="$(role_arn fiapx-video-api)"
 deploy fiapx-processing-worker \
   --set env.S3_BUCKET="$BUCKET" \
+  --set env.AWS_REGION="$REGION" \
   --set serviceAccount.roleArn="$(role_arn fiapx-processing-worker)"
 deploy fiapx-notification-service \
   --set env.DB_URL="jdbc:postgresql://$DB_HOST:5432/notification_db" \
   --set env.NOTIFICATION_FROM="$FROM_EMAIL" \
+  --set env.AWS_REGION="$REGION" \
   --set serviceAccount.roleArn="$(role_arn fiapx-notification-service)"
 deploy fiapx-gateway
 

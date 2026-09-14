@@ -21,8 +21,14 @@ awslocal sqs create-queue --queue-name "${PROCESSING_QUEUE}" --attributes "{
 
 TOPIC_ARN=$(awslocal sns create-topic --name "${TOPIC}" --output text --query TopicArn)
 
+# Igual ao Terraform: cada fila assinada no tópico tem a sua DLQ "<fila>-dlq", após 5 recebimentos.
 for QUEUE in "${STATUS_QUEUE}" "${NOTIFICATION_QUEUE}"; do
-    QUEUE_URL=$(awslocal sqs create-queue --queue-name "${QUEUE}" --output text --query QueueUrl)
+    QUEUE_DLQ_URL=$(awslocal sqs create-queue --queue-name "${QUEUE}-dlq" --output text --query QueueUrl)
+    QUEUE_DLQ_ARN=$(awslocal sqs get-queue-attributes --queue-url "${QUEUE_DLQ_URL}" \
+        --attribute-names QueueArn --output text --query 'Attributes.QueueArn')
+    QUEUE_URL=$(awslocal sqs create-queue --queue-name "${QUEUE}" --attributes "{
+  \"RedrivePolicy\": \"{\\\"deadLetterTargetArn\\\":\\\"${QUEUE_DLQ_ARN}\\\",\\\"maxReceiveCount\\\":\\\"5\\\"}\"
+}" --output text --query QueueUrl)
     QUEUE_ARN=$(awslocal sqs get-queue-attributes --queue-url "${QUEUE_URL}" \
         --attribute-names QueueArn --output text --query 'Attributes.QueueArn')
     awslocal sns subscribe --topic-arn "${TOPIC_ARN}" --protocol sqs \
