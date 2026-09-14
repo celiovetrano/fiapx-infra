@@ -2,6 +2,9 @@
 # entra no Plano 3, junto com o CD.
 name: terraform
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]

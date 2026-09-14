@@ -26,6 +26,10 @@ variable "events_topic_arn" {
   type = string
 }
 
+data "aws_caller_identity" "current" {}
+
+data "aws_region" "current" {}
+
 locals {
   consume = [
     "sqs:ReceiveMessage",
@@ -95,9 +99,11 @@ locals {
           Resource = [var.notification_queue_arn]
         },
         {
-          Effect   = "Allow"
-          Action   = ["ses:SendEmail", "ses:SendRawEmail"]
-          Resource = ["*"]
+          Effect = "Allow"
+          Action = ["ses:SendEmail", "ses:SendRawEmail"]
+          # Todas as identidades verificadas da conta: no sandbox do SES a
+          # autorizacao tambem eh checada contra a identidade do destinatario.
+          Resource = ["arn:aws:ses:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:identity/*"]
         },
       ]
     })
