@@ -1,0 +1,98 @@
+# Workflow reutilizável: build, testes, gate de cobertura, imagem Docker e Trivy.
+# Cada repositório de serviço tem um ci.yml de poucas linhas que chama este arquivo.
+name: maven-service
+
+# Só leitura do código: o Trivy imprime tabela e falha pelo exit-code, sem upload de SARIF.
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: Nome do repositório do serviço (ex. fiapx-video-api)
+        required: true
+        type: string
+      needs-contracts:
+        description: Instala o fiapx-contracts no ~/.m2 antes do build
+        type: boolean
+        default: false
+      needs-ffmpeg:
+        description: Instala o ffmpeg (testes do worker)
+        type: boolean
+        default: false
+      build-image:
+        description: Constrói a imagem e roda o Trivy
+        type: boolean
+        default: true
+      docker-context:
+        description: Contexto do docker build. Vazio = services/<service>
+        type: string
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Layout igual ao da máquina de desenvolvimento: services/<repo>. Os Dockerfiles
+      # do video-api, do worker e do notification-service usam services/ como contexto.
+      - name: Checkout do serviço
+        uses: actions/checkout@v7
+        with:
+          path: services/${{ inputs.service }}
+
+      - name: Checkout do fiapx-contracts
+        if: ${{ inputs.needs-contracts }}
+        uses: actions/checkout@v7
+        with:
+          repository: celiovetrano/fiapx-contracts
+          path: services/fiapx-contracts
+
+      - name: Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: services/${{ inputs.service }}/pom.xml
+
+      - name: ffmpeg
+        if: ${{ inputs.needs-ffmpeg }}
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Instalar fiapx-contracts no ~/.m2
+        if: ${{ inputs.needs-contracts }}
+        working-directory: services/fiapx-contracts
+        run: ./mvnw -B -q install -DskipTests
+
+      - name: Build, testes e gate de cobertura (JaCoCo 80%)
+        working-directory: services/${{ inputs.service }}
+        run: ./mvnw -B verify
+
+      - name: Relatórios de teste e cobertura
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: relatorios-${{ inputs.service }}
+          path: |
+            services/${{ inputs.service }}/target/surefire-reports/
+            services/${{ inputs.service }}/target/site/jacoco/
+          if-no-files-found: ignore
+
+      - name: Imagem Docker
+        if: ${{ inputs.build-image }}
+        env:
+          SERVICE: ${{ inputs.service }}
+          CONTEXT: ${{ inputs.docker-context }}
+        run: docker build -f "services/$SERVICE/Dockerfile" -t "fiapx/$SERVICE:ci" "${CONTEXT:-services/$SERVICE}"
+
+      - name: Trivy (falha em HIGH/CRITICAL com correção disponível)
+        if: ${{ inputs.build-image }}
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: fiapx/${{ inputs.service }}:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table

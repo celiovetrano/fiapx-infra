@@ -89,7 +89,7 @@ Cada decisão abaixo vira um ADR curto em `fiapx-infra/docs/adr/`.
 
 | Repositório | Conteúdo |
 |---|---|
-| `fiapx-contracts` | Eventos e DTOs compartilhados; publicado no GitHub Packages, versionado por semver |
+| `fiapx-contracts` | Eventos e DTOs compartilhados; versionado por semver. O CI e os Dockerfiles o instalam no repositório Maven local a partir do código-fonte (checkout do repositório público), sem registry de pacotes |
 | `fiapx-gateway` | Spring Cloud Gateway: roteamento, validação de JWT, rate limit, serve a UI estática |
 | `fiapx-auth-service` | Cadastro, login, BCrypt, emissão de JWT RS256, endpoint JWKS |
 | `fiapx-video-api` | Upload, listagem de status, download; publica na fila e consome eventos de resultado |
@@ -393,7 +393,9 @@ com tag `sha-<commit>` e `latest` → `aws eks update-kubeconfig` →
 `helm upgrade --install <serviço> ./chart --set image.tag=sha-<commit>` →
 aguarda rollout e faz rollback automático em falha.
 
-`fiapx-contracts` publica no GitHub Packages a cada tag `v*`.
+`fiapx-contracts` roda o mesmo workflow (sem imagem). Os serviços que dependem dele fazem
+checkout do repositório público e `./mvnw install` antes do build, o que evita autenticar
+um registry de pacotes em cada pipeline.
 `fiapx-infra` roda `terraform plan` em PR e `terraform apply` por `workflow_dispatch`
 manual, nunca automático.
 
