@@ -89,7 +89,7 @@ jobs:
 
       - name: Trivy (falha em HIGH/CRITICAL com correção disponível)
         if: ${{ inputs.build-image }}
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: fiapx/${{ inputs.service }}:ci
           severity: HIGH,CRITICAL
