@@ -92,6 +92,8 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: fiapx/${{ inputs.service }}:ci
+          # CVEs aceitos (só corrigidos em nova linha principal do Boot), com justificativa e exp: no próprio arquivo.
+          trivyignores: services/${{ inputs.service }}/.trivyignore
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
